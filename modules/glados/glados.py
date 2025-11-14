@@ -357,12 +357,11 @@ class GladosClient:
         """
 
         # 发送邮件（HTML 格式）
-        # succ = self.mail_client.send_email(self.notify_email, subject, html_body, html=True)
-        # if succ:
-        #     logger.info(f"[+] 通知邮件已发送至: {self.notify_email}")
-        # else:
-        #     logger.error(f"[-] 通知邮件发送失败: {self.notify_email}")
-        ql_notify(subject, html_body)
+        succ = self.mail_client.send_email(self.notify_email, subject, html_body, html=True)
+        if succ:
+            logger.info(f"[+] 通知邮件已发送至: {self.notify_email}")
+        else:
+            logger.error(f"[-] 通知邮件发送失败: {self.notify_email}")
 
 
 
