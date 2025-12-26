@@ -1,0 +1,26 @@
+email:
+  imap_server: "imap.qq.com"
+  imap_port: 993
+  username: 1850313939@qq.com
+  password: 
+  notify_address: 3222973652@qq.com
+
+glados:
+  auth_url: https://glados.rocks/api/authorization
+  checkin_url: https://glados.rocks/api/user/checkin
+  login_api: https://glados.rocks/api/login
+  login_url: https://glados.rocks/login
+  status_url: https://glados.rocks/api/user/status
+  threshold: 200.0
+
+accounts:
+- name: no01_nahuaiqiang74@163.com
+  username: nahuaiqiang74@163.com
+  balance: 120.0
+  leftDays: 0
+  expireAt: '2025-11-20 14:15:10'
+  traffic: 0
+  total_traffic: 5368709120
+  cookies:
+    koa:sess:
+    koa:sess.sig: 
