@@ -1,9 +1,15 @@
-email:  
-  address: 123@qq.com # 建议qq邮箱
-  password: 123 # 授权码
-  provider: qq #建议使用qq邮箱
+email:
+  imap_server: "imap.qq.com"
+  imap_port: 993
+  username: test@qq.com
+  password: test
   ssl: true
-  notify_address: 123@qq.com  # 通知邮箱地址,青龙不需要配置此项
+  smtp_server: "smtp.qq.com"
+  smtp_port: 465
+  timeout: 30
+  search_folders:
+    - INBOX
+  notify_address: test@qq.com
 
 glados:
   auth_url: https://glados.rocks/api/authorization
@@ -11,16 +17,16 @@ glados:
   login_api: https://glados.rocks/api/login
   login_url: https://glados.rocks/login
   status_url: https://glados.rocks/api/user/status
-  threshold: 200
+  redeem_url: https://glados.rocks/api/user/code
 
-  accounts:
-  - name: 123@163.com # 账号备注
-    username: 123@163.com # glodas账号
-    balance: 4.0 # 积分余额,自动修改
-    leftDays: 15 # 剩余天数,自动修改
-    expireAt: '2025-11-20 14:15:10' # 到期时间,自动修改
-    traffic: 123 # 流量,自动修改
-    total_traffic: 5368709120 # 总流量,自动修改
-    cookies: # 自动获取,没有或者失效时会通过邮件登录
-      koa:sess:         
-      koa:sess.sig: 
+accounts:
+  - name: acc@163.com
+    username: acc@163.com
+    balance: 0.0
+    leftDays: 0
+    expireAt: '2025-11-20 14:15:10'
+    traffic: 0
+    total_traffic: 5368709120
+    cookies:
+      koa:sess:
+      koa:sess.sig:

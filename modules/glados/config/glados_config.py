@@ -9,7 +9,7 @@ class GladosConfig:
     login_api: str = "https://glados.rocks/api/login"
     login_url: str = "https://glados.rocks/login"
     status_url: str = "https://glados.rocks/api/user/status"
-    threshold: float = 200.0
+    redeem_url: str = "https://glados.rocks/api/user/code"
     
     def to_dict(self) -> dict:
         """转换为字典格式"""
@@ -19,7 +19,7 @@ class GladosConfig:
             "login_api": self.login_api,
             "login_url": self.login_url,
             "status_url": self.status_url,
-            "threshold": self.threshold
+            "redeem_url": self.redeem_url,
         }
     
     @classmethod
@@ -31,5 +31,5 @@ class GladosConfig:
             login_api=data.get("login_api", "https://glados.rocks/api/login"),
             login_url=data.get("login_url", "https://glados.rocks/login"),
             status_url=data.get("status_url", "https://glados.rocks/api/user/status"),
-            threshold=data.get("threshold", 200.0)
+            redeem_url=data.get("redeem_url", "https://glados.rocks/api/user/code"),
         )

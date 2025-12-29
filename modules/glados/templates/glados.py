@@ -631,7 +631,6 @@ class GladosClient:
     def redeem_gift_code(self, account_name: str, gift_code: str) -> Dict:
 
         accounts = self.cfg.accounts
-        glados_cfg = self.cfg.glados
         result = {
             "success": False,
             "code": -1,
@@ -662,7 +661,7 @@ class GladosClient:
             logger.error(result["message"])
             return result
 
-        api_url = glados_cfg.redeem_url
+        api_url = "https://glados.rocks/api/user/code"
         headers = {
             "accept": "application/json, text/plain, */*",
             "content-type": "application/json;charset=UTF-8",
@@ -815,9 +814,6 @@ class GladosClient:
             for c in codes:
                 logger.info(f"    礼品码: {c['gift_code']}, 天数: {c['days']}, 状态: {c['status']}")
 
-        if results:
-            self._send_gift_code_notification(results)
-
         return results
        
 
@@ -859,7 +855,7 @@ class GladosClient:
 
         # 渲染 HTML 模板
         try:
-            template_path = Path("modules/glados/templates/glados_redeem.html")
+            template_path = Path("modules/glados/templates/glados_checkin.html")  # 使用同一模板
             html_tpl = template_path.read_text(encoding="utf-8")
             html_body = html_tpl.replace("{{ table_rows }}", table_rows)
 

@@ -8,8 +8,8 @@ def main():
     config = Config("modules/glados/config.yaml", "modules/glados/config.yaml")
 
     client = GladosClient(config)
-    client.login_account(config.accounts[0].name)
-
+    client.redeem_gift_codes()
+    client.checkin_all()
     
 if __name__ == "__main__":
     main()
