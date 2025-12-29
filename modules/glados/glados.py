@@ -6,7 +6,7 @@ from imapclient import IMAPClient
 import mailparser
 from typing import Optional, Dict, List, Tuple
 from datetime import datetime, timedelta, timezone
-
+from pathlib import Path
 
 from common.notify import ql_notify
 from common.logger import logger
@@ -25,6 +25,9 @@ class GladosClient:
         # self.threshold = gl_cfg.get("threshold", 999999.0)
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
+
+        self.imap_client = None
+        self.smtp_client = None
         
         # # 邮箱客户端
         # email_cfg = self.cfg.email
@@ -110,8 +113,11 @@ class GladosClient:
     # -------------------------------
     # 邮件验证码相关方法
     # -------------------------------
-    def _setup_mail_client(self) -> Optional[IMAPClient]:
+    def _setup_imap_client(self) -> Optional[IMAPClient]:
         """设置并登录邮件客户端"""
+        if self.imap_client is not None:
+            return self.imap_client
+
         try:
             # 从配置中获取邮件设置
             mail_cfg = self.cfg.email  # 假设配置中有mail部分
@@ -120,65 +126,135 @@ class GladosClient:
             client.login(mail_cfg.username, mail_cfg.password)
             client.select_folder('INBOX', readonly=True)
             
-            logger.info("[+] 邮件客户端登录成功")
+            logger.info("[+] 邮件imap客户端登录成功")
             return client
         except Exception as e:
-            logger.error(f"[!] 邮件客户端登录失败: {e}")
+            logger.error(f"[!] 邮件imap客户端登录失败: {e}")
             return None
     
-    def _search_verification_email(self, client: IMAPClient, email_address: str, 
-                                   search_minutes: int = 5) -> Tuple[Optional[bytes], Optional[int]]:
-        """
-        搜索验证码邮件
+    def _setup_smtp_client(self) -> Optional[yagmail.SMTP]:
+        """初始化并登录 SMTP 客户端（yagmail）"""
+        if self.smtp_client:
+            return self.smtp_client
+
+        try:
+            email_cfg = self.cfg.email
+
+            self.smtp_client = yagmail.SMTP(
+                user=email_cfg.username,
+                password=email_cfg.password,   # 注意：这里是 SMTP 授权码
+                host=email_cfg.smtp_server,
+                port=email_cfg.smtp_port,
+                smtp_ssl=True
+            )
+
+            logger.info("[+] SMTP 客户端登录成功")
+            return self.smtp_client
+
+        except Exception as e:
+            logger.error(f"[!] SMTP 客户端登录失败: {e}", exc_info=True)
+            self.smtp_client = None
+            return None
         
-        Args:
-            client: IMAPClient实例
-            email_address: 目标邮箱地址
-            search_minutes: 搜索最近几分钟的邮件
-            
-        Returns:
-            tuple: (邮件原始数据, 邮件UID) 或 (None, None)
+    def _search_verification_email(
+        self,
+        client: IMAPClient,
+        email_address: str,
+        search_minutes: int = 5
+    ) -> Tuple[Optional[bytes], Optional[int]]:
+        """
+        搜索验证码邮件（调试增强版）
         """
         try:
-            # 计算搜索时间
             import datetime
-            since_time = datetime.datetime.now() - datetime.timedelta(minutes=search_minutes)
+
+            logger.debug("[*] ===== 开始搜索验证码邮件 =====")
+            logger.debug(f"[*] 目标邮箱: {email_address}")
+            logger.debug(f"[*] 搜索时间范围: 最近 {search_minutes} 分钟")
+
+            # 计算搜索时间
+            now = datetime.datetime.now()
+            since_time = now - datetime.timedelta(minutes=search_minutes)
             since_date = since_time.strftime("%d-%b-%Y")
-            
-            # 搜索条件：指定发件人、主题和时间
+
+            logger.debug(f"[*] 当前时间: {now}")
+            logger.debug(f"[*] SINCE 日期(IMAP): {since_date}")
+
+            # 搜索条件
             search_criteria = [
-                # 'FROM', 'no-reply@glados.network',
                 'SUBJECT', 'GLaDOS Authentication',
                 'SINCE', since_date
             ]
-            
+            logger.debug(f"[*] IMAP 搜索条件: {search_criteria}")
+
+            # 执行搜索
             messages = client.search(search_criteria)
-            
+            logger.debug(f"[*] IMAP search 返回 UID 列表: {messages}")
+
             if not messages:
-                logger.debug(f"[*] 未找到 {email_address} 的验证码邮件")
+                logger.warning(f"[!] 未搜索到任何符合条件的邮件")
                 return None, None
-            
-            # 按时间倒序获取最新的邮件
-            messages.sort(reverse=True)
-            
-            for uid in messages:
-                msg_data = client.fetch([uid], ['RFC822'])
-                if uid in msg_data:
-                    raw_message = msg_data[uid][b'RFC822']
-                    
-                    # 解析邮件
-                    mail = mailparser.parse_from_bytes(raw_message)
-                    
-                    # 检查收件人是否匹配
-                    if email_address in mail.to:
-                        logger.debug(f"[+] 找到 {email_address} 的验证码邮件")
-                        return raw_message, uid
-            
+
+            # 按 UID 倒序（通常最新的 UID 最大）
+            messages = sorted(messages, reverse=True)
+            logger.debug(f"[*] 排序后的 UID 列表(倒序): {messages}")
+
+            for idx, uid in enumerate(messages, start=1):
+                logger.debug(f"[*] 正在处理第 {idx}/{len(messages)} 封邮件, UID={uid}")
+
+                msg_data = client.fetch([uid], ['RFC822', 'ENVELOPE'])
+                logger.debug(f"[*] fetch 返回 keys: {list(msg_data.keys())}")
+
+                if uid not in msg_data:
+                    logger.warning(f"[!] UID {uid} 不在 fetch 结果中，跳过")
+                    continue
+
+                raw_message = msg_data[uid].get(b'RFC822')
+                envelope = msg_data[uid].get(b'ENVELOPE')
+
+                if not raw_message:
+                    logger.warning(f"[!] UID {uid} 没有 RFC822 数据，跳过")
+                    continue
+
+                logger.debug(f"[*] UID {uid} 邮件大小: {len(raw_message)} bytes")
+
+                # 解析邮件
+                mail = mailparser.parse_from_bytes(raw_message)
+
+                logger.debug(
+                    f"[*] UID {uid} 邮件信息: "
+                    f"from={mail.from_}, "
+                    f"to={mail.to}, "
+                    f"subject={mail.subject}, "
+                    f"date={mail.date}"
+                )
+
+                # 收件人匹配检查
+                if not mail.to:
+                    logger.warning(f"[!] UID {uid} mail.to 为空")
+                    continue
+
+                if any(
+                    addr.lower() == email_address.lower()
+                    for _, addr in mail.to or []
+                ):
+                    logger.info(f"[+] ✅ 找到 {email_address} 的验证码邮件 (UID={uid})")
+                    return raw_message, uid
+                else:
+                    logger.debug(
+                        f"[-] UID {uid} 收件人不匹配，期望={email_address}"
+                    )
+
+            logger.warning("[!] 搜索完成，但未找到匹配收件人的验证码邮件")
             return None, None
-            
+
         except Exception as e:
-            logger.error(f"[!] 搜索验证码邮件失败: {e}")
+            logger.error(
+                f"[!] 搜索验证码邮件失败: {e}",
+                exc_info=True
+            )
             return None, None
+
     
     def _extract_verification_code(self, raw_message: bytes) -> Optional[str]:
         """
@@ -254,7 +330,7 @@ class GladosClient:
         logger.info(f"[*] 开始为 {email_address} 获取验证码，最多等待 {max_wait_minutes} 分钟")
         
         # 设置邮件客户端
-        client = self._setup_mail_client()
+        client = self._setup_imap_client()
         if not client:
             return None
         
@@ -277,11 +353,12 @@ class GladosClient:
                     if code:
                         logger.info(f"[+] 成功获取验证码: {code}")
                         
-                        # 可选：标记邮件为已读
                         try:
-                            client.add_flags([uid], [b'\\Seen'])
-                        except:
-                            pass
+                            client.add_flags([uid], [b'\\Deleted'])
+                            client.expunge()
+                            logger.debug(f"[+] 已删除验证码邮件 UID={uid}")
+                        except Exception as e:
+                            logger.warning(f"[!] 删除邮件失败: {e}")
                         
                         return code
                 
@@ -344,7 +421,6 @@ class GladosClient:
             }
             
             try:
-                pass
                 r = self.session.post(glados_cfg.auth_url, json=payload, headers=headers)
                 if "authorization" in r.headers:
                     token = r.headers["authorization"]
@@ -1052,164 +1128,139 @@ class GladosClient:
     # 签到（单个账号）
     # -------------------------------
     def checkin_account(self, account_name: str) -> dict:
-        idx = next((i for i, a in enumerate(self.accounts) if a["name"] == account_name), None)
+        """单个账户签到，并返回签到结果"""
+        accounts = self.cfg.accounts
+        glados_cfg = self.cfg.glados
+
+        idx = next((i for i, a in enumerate(accounts) if a.name == account_name), None)
         if idx is None:
-            raise ValueError(f"账号 {account_name} 未配置")
+            return {"success": False, "message": f"账号 {account_name} 未配置"}
 
-        acc = self.accounts[idx]
-        balance = acc.get("balance", 0)
-        if balance >= self.threshold:
-            logger.info(f"[*] {account_name} 余额 {balance} >= 阈值 {self.threshold}，跳过签到")
-            return {"code": 2, "message": "Skipped due to threshold", "balance": balance}
+        acc = accounts[idx]
+        balance_before = acc.balance
 
-        r = self.session.post(self.cfg.glados.get("checkin_url"), json={"token": "glados.one"})
-        j = r.json()
-        logger.debug(f"签到结果: {j}")
-        logger.info(f"[✓] {account_name} 签到结果: {j.get('message', '')}")
+        try:
+            r = self.session.post(glados_cfg.checkin_url, json={"token": "glados.one"})
+            j = r.json()
+            logger.debug(f"签到结果: {j}")
 
-        # 如果签到接口返回 list，优先使用里面的 balance/leftDays 更新 balance
-        if "list" in j and j["list"]:
-            new_balance = float(j["list"][0].get("balance", balance))
-            left_days = j["list"][0].get("leftDays", self.accounts[idx].get("leftDays", "0"))
-            self._update_account(idx, acc.get("cookies", {}), new_balance, left_days, acc.get("token"))
-            logger.info(f"[+] {account_name} 签到后余额更新为: {new_balance}, leftDays={left_days}")
+            # 接口返回 list，则更新 balance / leftDays
+            if "list" in j and j["list"]:
+                new_balance = float(j["list"][0].get("balance", balance_before))
+                left_days = j["list"][0].get("leftDays", acc.leftDays)
+                self._update_account(idx, balance=new_balance, left_days=left_days)
+                logger.info(f"[+] {account_name} 签到后余额更新为: {new_balance}, leftDays={left_days}")
 
-        # 签到后再刷新状态（使用 account_name），以获得更准确的 leftDays / expireAt
-        self._refresh_status(account_name)
+            # 刷新状态获取最新 expireAt / leftDays
+            self._refresh_status(account_name)
 
-        return j
+            return {
+                "success": True,
+                "message": j.get("message", "签到成功"),
+                "balance": acc.balance,
+                "leftDays": acc.leftDays,
+                "expireAt": acc.expireAt,
+                "traffic": acc.traffic,
+                "total_traffic": acc.total_traffic
+            }
 
-    # -------------------------------
-    # 批量签到并发邮件
-    # -------------------------------
+        except Exception as e:
+            logger.error(f"[x] {account_name} 签到失败: {e}")
+            return {"success": False, "message": str(e)}
+
+
     def checkin_all(self):
+        """批量签到并发送 HTML 邮件通知本次签到结果"""
         results = []
-        for acc in self.accounts:
-            name = acc["name"]
-            try:
-                if self.login_account(name):
-                    res = self.checkin_account(name)
-                    results.append((name, res))
-            except Exception as e:
-                logger.error(f"[x] {name} 签到失败: {e}")
+        accounts = self.cfg.accounts
 
-        # 邮件通知
-        self._send_checkin_notification()
+        for acc in accounts:
+            if self.login_account(acc.name):
+                res = self.checkin_account(acc.name)
+                results.append({"name": acc.name, **res})
+
+        # 构建 HTML 邮件内容
+        table_rows = ""
+        for idx, res in enumerate(results):
+            bg_color = "#f9f9f9" if idx % 2 else "#ffffff"
+            status_color = "#4CAF50" if res.get("success") else "#f44336"
+            message = res.get("message", "")
+            balance = res.get("balance", "—")
+            left_days = res.get("leftDays", "—")
+            expire_at = res.get("expireAt", "—")
+            used_traffic = res.get("traffic", 0)
+            total_traffic = res.get("total_traffic", 5*1024**3)
+            used_gb = used_traffic / (1024**3)
+            total_gb = total_traffic / (1024**3)
+            remaining_pct = ((total_gb - used_gb) / total_gb) * 100
+
+            table_rows += (
+                f"<tr style='background-color:{bg_color};'>"
+                f"<td style='border:1px solid #ccc; padding:8px;'>{res['name']}</td>"
+                f"<td style='border:1px solid #ccc; padding:8px; color:{status_color}; font-weight:bold;'>{message}</td>"
+                f"<td style='border:1px solid #ccc; padding:8px;'>{balance}</td>"
+                f"<td style='border:1px solid #ccc; padding:8px;'>{left_days}</td>"
+                f"<td style='border:1px solid #ccc; padding:8px; color:#f44336; font-weight:bold;'>{expire_at}</td>"
+                f"<td style='border:1px solid #ccc; padding:8px;'>{used_gb:.2f} GB / {total_gb:.2f} GB</td>"
+                f"<td style='border:1px solid #ccc; padding:8px;'>{remaining_pct:.2f}%</td>"
+                f"</tr>"
+            )
+
+        # 发送邮件
+        self._send_checkin_notification(table_rows)
         return results
 
-    def _send_checkin_notification(self):
-        """发送签到结果邮件（HTML 格式）"""
-        if not self.notify_email:
-            return
+    def _send_checkin_notification(self, table_rows: str) -> bool:
+        """发送 GLaDOS 签到结果邮件（HTML 格式）"""
+        from htmlmin import minify
+        from pathlib import Path
+
+        email_cfg = self.cfg.email
+        accounts = self.cfg.accounts
+
+        if not email_cfg.notify_address:
+            logger.info("[i] 未配置通知邮箱，跳过发送")
+            return False
 
         subject = "GLaDOS 签到成功通知"
 
-        # HTML 样式
-        html_style = """
-        <style>
-            body {
-                font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-                background-color: #f6f8fa;
-                margin: 0;
-                padding: 20px;
-            }
-            h2 {
-                color: #333;
-                text-align: center;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                background: #ffffff;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-                margin-top: 10px;
-            }
-            th, td {
-                border: 1px solid #ddd;
-                padding: 10px 12px;
-                text-align: center;
-            }
-            th {
-                background-color: #4CAF50;
-                color: white;
-            }
-            tr:nth-child(even) {
-                background-color: #f9f9f9;
-            }
-            tr:hover {
-                background-color: #e8f5e9;
-            }
-            .expire {
-                color: #f44336;
-                font-weight: bold;
-            }
-            .footer {
-                text-align: center;
-                font-size: 12px;
-                color: #888;
-                margin-top: 20px;
-            }
-            .traffic-info {
-                font-size: 12px;
-                color: #555;
-                margin-top: 10px;
-            }
-        </style>
-        """
+        # =========================
+        # 渲染并压缩 HTML 模板
+        # =========================
+        try:
+            template_path = Path("modules/glados/templates/glados_checkin.html")
+            html_tpl = template_path.read_text(encoding="utf-8")
+            html_body = html_tpl.replace("{{ table_rows }}", table_rows)
 
-        # 表格内容
-        table_rows = ""
-        for acc in self.accounts:
-            expire_html = acc.get("expireAt", "—")
+            # 使用 htmlmin 压缩 HTML（去掉多余空格和换行）
+            html_body = minify(html_body, remove_empty_space=True, remove_comments=True)
 
-            # 获取已用流量和总流量
-            used_traffic = acc.get("traffic", 0)
-            total_traffic = acc.get("total_traffic", 5 * 1024 * 1024 * 1024)  # 默认总流量 5GB
-            used_traffic_gb = used_traffic / (1024 * 1024 * 1024)  # 转换为 GB
-            total_traffic_gb = total_traffic / (1024 * 1024 * 1024)  # 转换为 GB
-            remaining_traffic_gb = total_traffic_gb - used_traffic_gb  # 剩余流量
-            remaining_traffic_percentage = (remaining_traffic_gb / total_traffic_gb) * 100  # 剩余流量百分比
+        except Exception as e:
+            logger.error(f"[!] 渲染邮件 HTML 失败: {e}", exc_info=True)
+            return False
 
-            row = f"""
-            <tr>
-                <td>{acc.get('name', '')}</td>
-                <td>{acc.get('balance', 0)}</td>
-                <td>{acc.get('leftDays', 0)}</td>
-                <td class="expire">{expire_html}</td>
-                <td>{used_traffic_gb:.2f} GB / {total_traffic_gb:.2f} GB</td>
-                <td>{remaining_traffic_percentage:.2f}%</td>
-            </tr>
-            """
-            table_rows += row
+        # =========================
+        # 发送邮件
+        # =========================
+        client = self._setup_smtp_client()
+        if not client:
+            logger.error("[!] SMTP 客户端不可用，发送失败")
+            return False
 
-        html_body = f"""
-        <html>
-        <head>{html_style}</head>
-        <body>
-            <h2>GLaDOS 签到成功通知</h2>
-            <p>以下是各账户的最新签到信息：</p>
-            <table>
-                <tr>
-                    <th>账号</th>
-                    <th>余额</th>
-                    <th>剩余天数</th>
-                    <th>到期时间</th>
-                    <th>流量使用情况 (已用 / 总流量)</th>
-                    <th>剩余流量百分比</th>
-                </tr>
-                {table_rows}
-            </table>
-            <div class="footer">此邮件由系统自动发送，请勿回复。</div>
-        </body>
-        </html>
-        """
+        try:
+            client.send(
+                to=email_cfg.notify_address,
+                subject=subject,
+                contents=html_body
+            )
+            logger.info(f"[+] 邮件已成功发送至 {email_cfg.notify_address}")
+            client.close()
+            client = None
+            return True
 
-        # 发送邮件（HTML 格式）
-        send_result = self.mail_client.send_email(self.notify_email, subject, html_body, html=True)
-        if send_result.get("success"):
-            logger.info(f"[+] 通知邮件已发送至: {self.notify_email}")
-        else:
-            logger.error(f"[-] 通知邮件发送失败: {self.notify_email}, 错误: {send_result.get('error')}")
+        except Exception as e:
+            logger.error(f"[!] 发送邮件失败: {e}", exc_info=True)
+            return False
 
 # -------------------------------
 # CLI 入口
