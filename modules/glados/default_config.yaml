@@ -19,7 +19,7 @@ glados:
   status_url: https://glados.rocks/api/user/status
   redeem_url: https://glados.rocks/api/user/code
   proxy_url: ""
-  
+
 accounts:
   - name: acc@163.com
     username: acc@163.com
@@ -28,6 +28,7 @@ accounts:
     expireAt: '2025-11-20 14:15:10'
     traffic: 0
     total_traffic: 5368709120
+    vip_level: 0
     cookies:
       koa:sess:
       koa:sess.sig:

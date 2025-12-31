@@ -14,6 +14,7 @@ class Account:
     traffic: int = 0
     total_traffic: int = 0
     cookies: Dict[str, Any] = field(default_factory=dict)
+    vip_level: int = 0
     
     def to_dict(self) -> Dict[str, Any]:
         """将Account对象转换为字典格式"""
@@ -25,7 +26,8 @@ class Account:
             "expireAt": self.expireAt,
             "traffic": self.traffic,
             "total_traffic": self.total_traffic,
-            "cookies": self.cookies.copy()
+            "cookies": self.cookies.copy(),
+            "vip_level": self.vip_level
         }
     
     @classmethod
@@ -39,7 +41,8 @@ class Account:
             expireAt=data.get("expireAt", ""),
             traffic=data.get("traffic", 0),
             total_traffic=data.get("total_traffic", 0),
-            cookies=data.get("cookies", {})
+            cookies=data.get("cookies", {}),
+            vip_level=data.get("vip_level", 0)
         )
     
     def is_expired(self) -> bool:

@@ -180,7 +180,8 @@ class GladosClient:
                         traffic: Optional[int] = None,
                         total_traffic: Optional[int] = None,
                         username: Optional[str] = None,
-                        name: Optional[str] = None) -> None:
+                        name: Optional[str] = None,
+                    vip_level: Optional[int] = None) -> None:
         """
         更新指定索引的账户信息
         """
@@ -212,6 +213,9 @@ class GladosClient:
         
         if name is not None:
             account.name = name
+
+        if vip_level is not None:
+            account.vip_level = vip_level
         
         self.cfg.save()
 
@@ -992,6 +996,21 @@ class GladosClient:
             logger.debug(f"账户状态: {j}")
 
             data = j.get("data", {}) or {}
+            
+            # 获取VIP等级
+            vip_level = data.get("vip")
+            if vip_level is None:
+                vip_level = 0  # 默认等级
+            
+            logger.debug(f"[{account_name}] VIP等级: {vip_level}")
+
+            # 根据VIP等级确定总流量
+            if vip_level == 21:
+                total_traffic = 200 * 1024 * 1024 * 1024  # 200GB
+                logger.debug(f"[{account_name}] VIP等级21，总流量设置为200GB")
+            else:
+                total_traffic = 5 * 1024 * 1024 * 1024  # 5GB
+                logger.debug(f"[{account_name}] VIP等级{vip_level}，总流量设置为5GB")
 
             # balance
             balance_raw = data.get("balance")
@@ -1014,21 +1033,24 @@ class GladosClient:
             except Exception:
                 traffic = int(0)
 
-            # 总流量假设为 5GB
-            total_traffic = 5 * 1024 * 1024 * 1024
-
             # 更新账户
             self._update_account(idx,
-                                 balance=balance,
-                                 left_days = left_days,
-                                 traffic=traffic,
-                                 total_traffic=total_traffic)
+                                balance=balance,
+                                left_days=left_days,
+                                traffic=traffic,
+                                total_traffic=total_traffic,
+                                vip_level=vip_level) 
 
             # 更新配置文件
             self.cfg.save()
 
             # 日志
-            logger.info(f"[{account_name}] balance={balance}, leftDays={left_days}, usedTraffic={traffic / (1024 * 1024 * 1024):.2f} GB, totalTraffic={total_traffic / (1024 * 1024 * 1024):.2f} GB")
+            used_gb = traffic / (1024 * 1024 * 1024)
+            total_gb = total_traffic / (1024 * 1024 * 1024)
+            remaining_pct = ((total_gb - used_gb) / total_gb * 100) if total_gb > 0 else 0
+            
+            logger.info(f"[{account_name}] balance={balance}, leftDays={left_days}, "
+                    f"traffic={used_gb:.2f}GB/{total_gb:.2f}GB ({remaining_pct:.1f}%)")
 
         except Exception as e:
             logger.warning(f"[WARN] 获取余额/状态失败 ({account_name}): {e}")
@@ -1074,7 +1096,8 @@ class GladosClient:
                 "leftDays": acc.leftDays,
                 "expireAt": acc.expireAt,
                 "traffic": acc.traffic,
-                "total_traffic": acc.total_traffic
+                "total_traffic": acc.total_traffic,
+                "vip_level": acc.vip_level if hasattr(acc, 'vip_level') else 0  # 添加VIP等级信息
             }
 
         except Exception as e:
