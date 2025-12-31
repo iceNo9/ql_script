@@ -4,7 +4,7 @@ import re
 import yagmail
 from imapclient import IMAPClient
 import mailparser
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,47 +12,164 @@ from common.notify import ql_notify
 from common.logger import logger
 from modules.glados.config.config import Config
 
-
-
+class RequestClient:
+    """封装请求客户端，优先使用代理"""
+    
+    def __init__(self, proxy_url: Optional[str] = None, max_retries: int = 3):
+        """
+        初始化请求客户端
+        
+        Args:
+            proxy_url: 代理地址，例如 "http://127.0.0.1:7890"
+            max_retries: 最大重试次数
+        """
+        self.proxy_url = proxy_url
+        self.max_retries = max_retries
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+        })
+        
+    def _get_proxies(self, use_proxy: bool = True) -> Optional[Dict[str, str]]:
+        """获取代理配置"""
+        if use_proxy and self.proxy_url:
+            return {
+                "http": self.proxy_url,
+                "https": self.proxy_url,
+            }
+        return None
+    
+    def request(
+        self,
+        method: str,
+        url: str,
+        prefer_proxy: bool = True,
+        **kwargs
+    ) -> requests.Response:
+        """
+        发送请求，优先使用代理
+        
+        Args:
+            method: HTTP方法
+            url: 请求URL
+            prefer_proxy: 是否优先使用代理
+            **kwargs: requests请求参数
+            
+        Returns:
+            requests.Response对象
+        """
+        last_exception = None
+        
+        # 定义尝试顺序：如果prefer_proxy为True，先尝试代理，再尝试直连
+        attempts_plan = []
+        if prefer_proxy and self.proxy_url:
+            attempts_plan.append((True, "代理"))  # 先尝试代理
+            attempts_plan.append((False, "直连"))  # 再尝试直连
+        else:
+            attempts_plan.append((False, "直连"))  # 只尝试直连
+        
+        for use_proxy, method_name in attempts_plan:
+            for attempt in range(self.max_retries):
+                try:
+                    logger.debug(f"[*] 尝试 {method_name} 请求 {url} (尝试 {attempt+1}/{self.max_retries})")
+                    
+                    proxies = self._get_proxies(use_proxy)
+                    
+                    # 设置超时
+                    if 'timeout' not in kwargs:
+                        kwargs['timeout'] = 30
+                    
+                    # 发送请求
+                    response = self.session.request(
+                        method=method,
+                        url=url,
+                        proxies=proxies,
+                        **kwargs
+                    )
+                    
+                    # 记录日志
+                    logger.debug(f"[*] {method_name} 请求 {url} - 状态码: {response.status_code}")
+                    
+                    # 如果请求成功，返回响应
+                    if response.status_code < 500:  # 只对服务器错误进行重试
+                        logger.info(f"[+] {method_name} 请求成功: {url}")
+                        return response
+                    
+                    # 服务器错误，记录并继续重试
+                    logger.warning(f"[!] {method_name} 请求失败: {url} - 状态码: {response.status_code}")
+                    
+                except (requests.ConnectionError, requests.Timeout) as e:
+                    last_exception = e
+                    logger.warning(f"[!] {method_name} 网络请求异常 (尝试 {attempt+1}/{self.max_retries}): {e}")
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(1)  # 等待后重试
+                    continue
+                
+                except Exception as e:
+                    last_exception = e
+                    logger.error(f"[!] {method_name} 请求异常: {e}")
+                    break  # 其他异常直接跳出重试循环
+            
+            # 如果当前方法成功了，就返回
+            if 'response' in locals() and response.status_code < 500:
+                return response
+        
+        # 所有尝试都失败
+        if last_exception:
+            raise last_exception
+        raise Exception(f"所有请求方式都失败: {url}")
+    
+    def get(self, url: str, prefer_proxy: bool = True, **kwargs) -> requests.Response:
+        """GET请求，优先使用代理"""
+        return self.request("GET", url, prefer_proxy=prefer_proxy, **kwargs)
+    
+    def post(self, url: str, prefer_proxy: bool = True, **kwargs) -> requests.Response:
+        """POST请求，优先使用代理"""
+        return self.request("POST", url, prefer_proxy=prefer_proxy, **kwargs)
+    
+    def set_cookies(self, cookies: Dict[str, str]):
+        """设置cookies"""
+        self.session.cookies.clear()
+        for k, v in cookies.items():
+            self.session.cookies.set(k, v)
+    
+    def get_cookies_dict(self) -> Dict[str, str]:
+        """获取当前cookies字典"""
+        return requests.utils.dict_from_cookiejar(self.session.cookies)
 
 class GladosClient:
     def __init__(self, rv_cfg: Config):
         self.cfg = rv_cfg
         
-        
         gl_cfg = self.cfg.glados
-        # self.accounts = gl_cfg.get("accounts", [])
-        # self.threshold = gl_cfg.get("threshold", 999999.0)
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Mozilla/5.0"})
-
+        
+        # 初始化请求客户端，优先使用代理
+        self.client = RequestClient(proxy_url=gl_cfg.proxy_url, max_retries=2)
+        
         self.imap_client = None
         self.smtp_client = None
-        
-        # # 邮箱客户端
-        # email_cfg = self.cfg.email
-        # self.notify_email = email_cfg.get("notify_address", "")
-        # self.mail_client = MailBoxClient(
-        #     email_addr=email_cfg["address"],
-        #     password=email_cfg["password"],
-        #     provider=email_cfg["provider"],
-        #     ssl=email_cfg.get("ssl", True)
-        # )
 
     # -------------------------------
     # 内部工具方法
     # -------------------------------
     def _set_session_cookies(self, cookies: Dict[str, str]):
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
+        """设置cookies"""
+        self.client.set_cookies(cookies)
 
     def _cookie_login_ok(self) -> bool:
+        """检查cookies登录状态"""
         try:
             status_url = self.cfg.glados.status_url
-            r = self.session.get(status_url, timeout=10)
+            r = self.client.get(status_url, prefer_proxy=True)
             j = r.json()
             return j.get("code") == 0
-        except Exception:
+        except Exception as e:
+            logger.error(f"[!] 检查登录状态失败: {e}")
             return False
 
     def _update_account(self, idx: int, 
@@ -65,25 +182,13 @@ class GladosClient:
                         username: Optional[str] = None,
                         name: Optional[str] = None) -> None:
         """
-        更新指定索引的账户信息，只更新传入的非空参数
-        
-        Args:
-            idx: 账户索引
-            cookies: 可选，新的cookies字典
-            balance: 可选，新的余额
-            left_days: 可选，新的剩余天数
-            expire_at: 可选，新的过期时间
-            traffic: 可选，新的已用流量
-            total_traffic: 可选，新的总流量
-            username: 可选，新的用户名
-            name: 可选，新的账户名称
+        更新指定索引的账户信息
         """
         if idx < 0 or idx >= len(self.cfg.accounts):
             raise IndexError(f"账户索引 {idx} 超出范围")
         
         account = self.cfg.accounts[idx]
         
-        # 只更新传入的非空参数
         if cookies is not None:
             account.cookies = cookies
         
@@ -119,13 +224,10 @@ class GladosClient:
             return self.imap_client
 
         try:
-            # 从配置中获取邮件设置
-            mail_cfg = self.cfg.email  # 假设配置中有mail部分
-            
+            mail_cfg = self.cfg.email
             client = IMAPClient(mail_cfg.imap_server, port=mail_cfg.imap_port, ssl=True)
             client.login(mail_cfg.username, mail_cfg.password)
             client.select_folder('INBOX', readonly=True)
-            
             logger.info("[+] 邮件imap客户端登录成功")
             return client
         except Exception as e:
@@ -133,24 +235,21 @@ class GladosClient:
             return None
     
     def _setup_smtp_client(self) -> Optional[yagmail.SMTP]:
-        """初始化并登录 SMTP 客户端（yagmail）"""
+        """初始化并登录 SMTP 客户端"""
         if self.smtp_client:
             return self.smtp_client
 
         try:
             email_cfg = self.cfg.email
-
             self.smtp_client = yagmail.SMTP(
                 user=email_cfg.username,
-                password=email_cfg.password,   # 注意：这里是 SMTP 授权码
+                password=email_cfg.password,
                 host=email_cfg.smtp_server,
                 port=email_cfg.smtp_port,
                 smtp_ssl=True
             )
-
             logger.info("[+] SMTP 客户端登录成功")
             return self.smtp_client
-
         except Exception as e:
             logger.error(f"[!] SMTP 客户端登录失败: {e}", exc_info=True)
             self.smtp_client = None
@@ -163,7 +262,7 @@ class GladosClient:
         search_minutes: int = 5
     ) -> Tuple[Optional[bytes], Optional[int]]:
         """
-        搜索验证码邮件（调试增强版）
+        搜索验证码邮件
         """
         try:
             import datetime
@@ -195,7 +294,7 @@ class GladosClient:
                 logger.warning(f"[!] 未搜索到任何符合条件的邮件")
                 return None, None
 
-            # 按 UID 倒序（通常最新的 UID 最大）
+            # 按 UID 倒序
             messages = sorted(messages, reverse=True)
             logger.debug(f"[*] 排序后的 UID 列表(倒序): {messages}")
 
@@ -258,12 +357,6 @@ class GladosClient:
     def _extract_verification_code(self, raw_message: bytes) -> Optional[str]:
         """
         从邮件中提取验证码
-        
-        Args:
-            raw_message: 邮件原始数据
-            
-        Returns:
-            验证码字符串或None
         """
         try:
             # 解析邮件
@@ -316,21 +409,12 @@ class GladosClient:
                                       max_wait_minutes: int = 5,
                                       check_interval: int = 10) -> Optional[str]:
         """
-        获取GLaDOS验证码（主入口方法）
-        
-        Args:
-            email_address: 邮箱地址
-            max_wait_minutes: 最大等待时间（分钟）
-            check_interval: 检查间隔（秒）
-            
-        Returns:
-            验证码字符串或None
+        获取GLaDOS验证码
         """
         logger.info(f"[*] 开始为 {email_address} 获取验证码，最多等待 {max_wait_minutes} 分钟")
         
         # 设置邮件客户端
         client = self._setup_imap_client()
-         
         
         try:
             max_attempts = (max_wait_minutes * 60) // check_interval
@@ -384,7 +468,7 @@ class GladosClient:
     # 登录函数
     # -------------------------------
     def login_account(self, account_name: str, mailbox_within_minutes: int = 5) -> bool:
-            """登录单个账号，优先使用 cookies / 邮箱验证码"""
+            """登录单个账号，优先使用代理"""
             accounts = self.cfg.accounts
             glados_cfg = self.cfg.glados
             idx = next((i for i, a in enumerate(accounts) if a.name == account_name), None)
@@ -402,14 +486,13 @@ class GladosClient:
                 self._set_session_cookies(acc.cookies)
                 if self._cookie_login_ok():
                     logger.info(f"[+] {account_name} 使用 cookies 登录成功")
-                    # 使用 account_name 调用刷新
                     self._refresh_status(account_name)
                     return True
 
             # 2️⃣ 邮箱验证码登录
             logger.info(f"[*] {account_name} 开始邮箱验证码登录流程")
             
-            # 请求发送验证码
+            # 请求发送验证码，优先使用代理
             payload = {"address": username, "site": "glados.network"}
             headers = {
                 "Referer": glados_cfg.login_url,
@@ -419,7 +502,12 @@ class GladosClient:
             }
             
             try:
-                r = self.session.post(glados_cfg.auth_url, json=payload, headers=headers)
+                r = self.client.post(
+                    glados_cfg.auth_url, 
+                    json=payload, 
+                    headers=headers,
+                    prefer_proxy=True
+                )
                 if "authorization" in r.headers:
                     token = r.headers["authorization"]
                     logger.info(f"[+] 验证码请求发送成功，获取到token")
@@ -430,7 +518,7 @@ class GladosClient:
                 logger.error(f"[!] 请求发送验证码失败: {e}")
                 return False
 
-            # 使用新的专用方法获取验证码
+            # 获取验证码
             code = self._get_glados_verification_code(
                 email_address=username,
                 max_wait_minutes=mailbox_within_minutes
@@ -440,7 +528,7 @@ class GladosClient:
                 logger.error(f"[x] {account_name} 未收到验证码，请检查邮箱")
                 return False
 
-            # 提交验证码登录
+            # 提交验证码登录，优先使用代理
             try:
                 if token:
                     headers["authorization"] = token
@@ -452,7 +540,12 @@ class GladosClient:
                     "mailcode": code
                 }
                 
-                r = self.session.post(glados_cfg.login_api, json=payload, headers=headers)
+                r = self.client.post(
+                    glados_cfg.login_api, 
+                    json=payload, 
+                    headers=headers,
+                    prefer_proxy=True
+                )
                 j = r.json()
                 
                 if j.get("code") != 0:
@@ -462,13 +555,13 @@ class GladosClient:
                 logger.info(f"[+] {account_name} 登录成功（邮箱验证码）")
                 
                 # 获取并保存cookies
-                cookies_dict = self.session.cookies.get_dict()
+                cookies_dict = self.client.get_cookies_dict()
                 
-                # 更新账户信息（使用修改后的_update_account方法）
+                # 更新账户信息
                 self._update_account(
                     idx=idx,
                     cookies=cookies_dict,
-                    username=username  # 可以传递更多需要更新的字段
+                    username=username
                 )
                 
                 # 刷新状态
@@ -483,9 +576,7 @@ class GladosClient:
     # 礼品码核心方法
     # -------------------------------
     
-    # -----------------------------
     # 方法1：提取邮件中的礼品码
-    # -----------------------------
     def _extract_gift_codes_from_email(self, email_body: str, email_id: str, target_email: str, subject: str) -> List[Dict]:
         """
         从邮件正文中提取礼品码及天数信息
@@ -540,14 +631,10 @@ class GladosClient:
 
         return codes_found
 
-
-    # -----------------------------
-    # 查询邮箱获取礼品码
-    # -----------------------------
+    # 方法2：查询邮箱获取礼品码
     def _get_gift_code_emails(self, target_email: str, days_back: int = 7) -> List[Dict]:
         """
-        扫描指定邮箱 target_email 的最近 days_back 天内的礼品码邮件，
-        返回提取的礼品码列表，每个元素是 dict，包含 gift_code、原收件人、邮件ID 等信息。
+        扫描指定邮箱的礼品码邮件
         """
         logger.info(f"[*] 扫描邮箱 {target_email} 的礼品码邮件，过去 {days_back} 天")
         found_codes = []
@@ -576,9 +663,8 @@ class GladosClient:
                     subject = mail.subject or ""
                     logger.debug(f"[D] 邮件ID {msg_id} 主题: {subject}")
 
-                    # -------- text/plain --------
+                    # 获取邮件内容
                     text_plain = "\n".join(mail.text_plain) if mail.text_plain else ""
-                    # -------- text/html --------
                     text_html = "\n".join(mail.text_html) if mail.text_html else ""
 
                     # 中文过滤，避免无关邮件
@@ -586,7 +672,6 @@ class GladosClient:
                         logger.debug(f"[D] 邮件ID {msg_id} 跳过（无礼品码关键词）")
                         continue
 
-                    # ======== 调试输出 ========
                     logger.debug(
                         f"[✓] 命中邮件 ID={msg_id}\n"
                         f"[SUBJECT]\n{subject}\n\n"
@@ -595,7 +680,7 @@ class GladosClient:
                         f"{'=' * 100}"
                     )
 
-                    # ⚠ 提取时：HTML 优先，其次 plain
+                    # 提取正文
                     extract_body = text_html if text_html.strip() else text_plain
 
                     # 获取邮件原始收件人
@@ -612,7 +697,7 @@ class GladosClient:
                     codes = self._extract_gift_codes_from_email(
                         extract_body,
                         str(msg_id),
-                        email_target,  # 使用原收件人
+                        email_target,
                         subject
                     )
                     found_codes.extend(codes)
@@ -625,11 +710,10 @@ class GladosClient:
 
         logger.info(f"[✓] 邮件扫描完成，共提取 {len(found_codes)} 个礼品码")
         return found_codes
-
     
     # 方法3：兑换礼品码
     def redeem_gift_code(self, account_name: str, gift_code: str) -> Dict:
-
+        """兑换礼品码，优先使用代理"""
         accounts = self.cfg.accounts
         glados_cfg = self.cfg.glados
         result = {
@@ -671,7 +755,13 @@ class GladosClient:
 
         try:
             logger.info(f"[*] 兑换礼品码 {clean_code} - 账户 {account_name}")
-            resp = self.session.post(api_url, json={"code": clean_code}, headers=headers, timeout=30)
+            resp = self.client.post(
+                api_url, 
+                json={"code": clean_code}, 
+                headers=headers, 
+                timeout=30,
+                prefer_proxy=True
+            )
             data = resp.json()
             result["details"] = data
             result["code"] = data.get("code", -1)
@@ -699,13 +789,10 @@ class GladosClient:
 
         return result
 
-    # -----------------------------
-    # 扫描邮件并批量兑换礼品码
-    # -----------------------------
+    # 方法4：扫描邮件并批量兑换礼品码
     def redeem_gift_codes(self, days_back: int = 7) -> List[Dict]:
         """
-        扫描 self.cfg.email.username 最近 days_back 天内邮件，提取礼品码并自动兑换
-        成功或已兑换的礼品码邮件会移动到邮箱 '已兑换礼品码' 文件夹
+        扫描邮箱中的礼品码邮件并自动兑换
         """
         target_email = self.cfg.email.username
         accounts = self.cfg.accounts
@@ -820,12 +907,8 @@ class GladosClient:
 
         return results
        
-
     def _send_gift_code_notification(self, results: list) -> bool:
-        """
-        发送批量兑换礼品码结果邮件（HTML格式）。
-        如果 results 为空或没有成功兑换，则不发送。
-        """
+        """发送批量兑换礼品码结果邮件"""
         from htmlmin import minify
         from pathlib import Path
 
@@ -889,18 +972,13 @@ class GladosClient:
             logger.error(f"[!] 礼品码兑换通知邮件发送失败: {e}", exc_info=True)
             return False
 
-    
-
-
     # -------------------------------
-    # 获取状态（并更新账户） - 按 account_name 调用
+    # 获取状态
     # -------------------------------
     def _refresh_status(self, account_name: str):
         """
-        通过 status 接口刷新指定账号的 balance 和 leftDays（并写回 config）。
-        account_name: accounts 列表中配置的 name 字段（例如 no01_xxx@163.com）
+        通过 status 接口刷新指定账号的状态
         """
-        # 找到索引
         accounts = self.cfg.accounts
         idx = next((i for i, a in enumerate(accounts) if a.name == account_name), None)
         if idx is None:
@@ -908,8 +986,7 @@ class GladosClient:
             return
 
         try:
-            status_url = self.cfg.glados.status_url
-            r = self.session.get(self.cfg.glados.status_url)
+            r = self.client.get(self.cfg.glados.status_url, prefer_proxy=True)
             r.raise_for_status()
             j = r.json()
             logger.debug(f"账户状态: {j}")
@@ -923,22 +1000,22 @@ class GladosClient:
             except Exception:
                 balance = float(0)
 
-            # leftDays（强制保存为整数）
+            # leftDays
             left_days_raw = data.get("leftDays", accounts[idx].leftDays)
             try:
                 left_days = int(float(left_days_raw))
             except Exception:
                 left_days = int(0)
 
-            # traffic (字节数)
+            # traffic
             traffic_raw = data.get("traffic", accounts[idx].traffic)
             try:
                 traffic = int(traffic_raw)
             except Exception:
                 traffic = int(0)
 
-            # 总流量假设为 5GB (5 * 1024 * 1024 * 1024 字节)
-            total_traffic = 5 * 1024 * 1024 * 1024  # 5GB 转换为字节
+            # 总流量假设为 5GB
+            total_traffic = 5 * 1024 * 1024 * 1024
 
             # 更新账户
             self._update_account(idx,
@@ -960,7 +1037,7 @@ class GladosClient:
     # 签到（单个账号）
     # -------------------------------
     def checkin_account(self, account_name: str) -> dict:
-        """单个账户签到，并返回签到结果"""
+        """单个账户签到，优先使用代理"""
         accounts = self.cfg.accounts
         glados_cfg = self.cfg.glados
 
@@ -972,7 +1049,11 @@ class GladosClient:
         balance_before = acc.balance
 
         try:
-            r = self.session.post(glados_cfg.checkin_url, json={"token": "glados.one"})
+            r = self.client.post(
+                glados_cfg.checkin_url, 
+                json={"token": "glados.one"},
+                prefer_proxy=True
+            )
             j = r.json()
             logger.debug(f"签到结果: {j}")
 
@@ -983,7 +1064,7 @@ class GladosClient:
                 self._update_account(idx, balance=new_balance, left_days=left_days)
                 logger.info(f"[+] {account_name} 签到后余额更新为: {new_balance}, leftDays={left_days}")
 
-            # 刷新状态获取最新 expireAt / leftDays
+            # 刷新状态获取最新信息
             self._refresh_status(account_name)
 
             return {
@@ -1000,9 +1081,11 @@ class GladosClient:
             logger.error(f"[x] {account_name} 签到失败: {e}")
             return {"success": False, "message": str(e)}
 
-
+    # -------------------------------
+    # 批量签到
+    # -------------------------------
     def checkin_all(self):
-        """批量签到并发送 HTML 邮件通知本次签到结果"""
+        """批量签到并发送 HTML 邮件通知"""
         results = []
         accounts = self.cfg.accounts
 
@@ -1043,7 +1126,7 @@ class GladosClient:
         return results
 
     def _send_checkin_notification(self, table_rows: str) -> bool:
-        """发送 GLaDOS 签到结果邮件（HTML 格式）"""
+        """发送 GLaDOS 签到结果邮件"""
         from htmlmin import minify
         from pathlib import Path
 
@@ -1056,24 +1139,19 @@ class GladosClient:
 
         subject = "GLaDOS 签到成功通知"
 
-        # =========================
         # 渲染并压缩 HTML 模板
-        # =========================
         try:
             template_path = Path("modules/glados/templates/glados_checkin.html")
             html_tpl = template_path.read_text(encoding="utf-8")
             html_body = html_tpl.replace("{{ table_rows }}", table_rows)
 
-            # 使用 htmlmin 压缩 HTML（去掉多余空格和换行）
             html_body = minify(html_body, remove_empty_space=True, remove_comments=True)
 
         except Exception as e:
             logger.error(f"[!] 渲染邮件 HTML 失败: {e}", exc_info=True)
             return False
 
-        # =========================
         # 发送邮件
-        # =========================
         client = self._setup_smtp_client()
         if not client:
             logger.error("[!] SMTP 客户端不可用，发送失败")

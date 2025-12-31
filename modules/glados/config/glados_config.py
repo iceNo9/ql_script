@@ -1,5 +1,6 @@
 # glados_config.py
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class GladosConfig:
@@ -10,6 +11,7 @@ class GladosConfig:
     login_url: str = "https://glados.rocks/login"
     status_url: str = "https://glados.rocks/api/user/status"
     redeem_url: str = "https://glados.rocks/api/user/code"
+    proxy_url: Optional[str] = None  # 添加代理配置
     
     def to_dict(self) -> dict:
         """转换为字典格式"""
@@ -20,6 +22,7 @@ class GladosConfig:
             "login_url": self.login_url,
             "status_url": self.status_url,
             "redeem_url": self.redeem_url,
+            "proxy_url": self.proxy_url,
         }
     
     @classmethod
@@ -32,4 +35,5 @@ class GladosConfig:
             login_url=data.get("login_url", "https://glados.rocks/login"),
             status_url=data.get("status_url", "https://glados.rocks/api/user/status"),
             redeem_url=data.get("redeem_url", "https://glados.rocks/api/user/code"),
+            proxy_url=data.get("proxy_url"),
         )

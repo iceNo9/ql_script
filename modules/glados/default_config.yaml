@@ -18,7 +18,8 @@ glados:
   login_url: https://glados.rocks/login
   status_url: https://glados.rocks/api/user/status
   redeem_url: https://glados.rocks/api/user/code
-
+  proxy_url: ""
+  
 accounts:
   - name: acc@163.com
     username: acc@163.com
