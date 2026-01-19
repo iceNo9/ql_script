@@ -12,12 +12,12 @@ email:
   notify_address: test@qq.com
 
 glados:
-  auth_url: https://glados.rocks/api/authorization
-  checkin_url: https://glados.rocks/api/user/checkin
-  login_api: https://glados.rocks/api/login
-  login_url: https://glados.rocks/login
-  status_url: https://glados.rocks/api/user/status
-  redeem_url: https://glados.rocks/api/user/code
+  auth_url: https://glados.cloud/api/authorization
+  checkin_url: https://glados.cloud/api/user/checkin
+  login_api: https://glados.cloud/api/login
+  login_url: https://glados.cloud/login
+  status_url: https://glados.cloud/api/user/status
+  redeem_url: https://glados.cloud/api/user/code
   proxy_url: ""
 
 accounts:
