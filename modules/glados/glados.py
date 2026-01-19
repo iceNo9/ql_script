@@ -1073,7 +1073,7 @@ class GladosClient:
         try:
             r = self.client.post(
                 glados_cfg.checkin_url, 
-                json={"token": "glados.one"},
+                json={"token": "glados.cloud"},
                 prefer_proxy=True
             )
             j = r.json()
