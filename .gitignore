@@ -1,6 +1,7 @@
 .vscode
 glados.yaml
 global.yaml
+data.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

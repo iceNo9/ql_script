@@ -45,20 +45,6 @@ def require_login_typed(func: Callable[Concatenate['GladosClient', Account, P], 
     return wrapper
 
 
-def require_email_client_typed(func: Callable[Concatenate['GladosClient', P], R]
-                              ) -> Callable[Concatenate['GladosClient', P], Optional[R]]:
-    """类型安全的邮箱客户端检查装饰器"""
-    @wraps(func)
-    def wrapper(self: 'GladosClient', *args: P.args, **kwargs: P.kwargs) -> Optional[R]:
-        smtp = self._setup_smtp_client()
-        if not smtp:
-            logger.error("[!] SMTP 客户端不可用，取消发送邮件")
-            return None
-        return func(self, *args, **kwargs)
-    return wrapper
-
-
-
 class CheckinResult(BaseModel):
     id: str
     success: bool
@@ -95,9 +81,6 @@ class GladosClient:
         self.server = GladosServer(self.client)
         self.email_extractor = EmailCodeExtractor(self._global_config.email)
 
-        # 邮件客户端
-        self.smtp_client = None
-
         # 操作结果
         self.checkin_results = []
         self.code_results = []
@@ -107,33 +90,12 @@ class GladosClient:
     # -------------------------------
     # 内部工具方法
     # -------------------------------
-    def _setup_smtp_client(self) -> Optional[yagmail.SMTP]:
-        """初始化并登录 SMTP 客户端"""
-        if self.smtp_client:
-            return self.smtp_client
-
-        try:
-            yagmail.sender.SMTP.__del__ = lambda self: None
-            mail = self._global_config.email
-            smtp = mail.smtp
-            self.smtp_client = yagmail.SMTP(
-                user=mail.username,
-                password=mail.password,
-                host=smtp.host,
-                port=smtp.port,
-                smtp_ssl=smtp.secure
-            )
-            logger.info("[+] SMTP 客户端登录成功")
-            return self.smtp_client
-        except Exception as e:
-            logger.error(f"[!] SMTP 客户端登录失败: {e}", exc_info=True)
-            self.smtp_client = None
-            return None
-
     def _check_account_ok(self, rv_account: Account) -> bool:
         """检查登录状态"""
         if rv_account.cookies:
             self.server.update_cookies(rv_account.cookies)
+        else:
+            self.server.clear_cookies()
 
         result = self.server.request_status()
         if not result:
@@ -174,14 +136,9 @@ class GladosClient:
                 logger.error(f"[!] 账户 {rv_account.username} 验证码登录失败")
                 return False
             
-            if self._check_account_ok(rv_account):                
-                logger.info(f"[+] 账户 {rv_account.username} 验证码登录成功")
-                rv_account.cookies = self.server.get_cookies()
-                self.server.update_cookies(rv_account.cookies)
-                return True
-            else:
-                logger.error(f"[!] 账户 {rv_account.username} 验证码登录失败")
-                return False
+            logger.info(f"[+] 账户 {rv_account.username} 验证码登录成功")
+            rv_account.cookies = self.server.get_cookies()
+            self.server.update_cookies(rv_account.cookies)
 
         return True
     
@@ -266,7 +223,7 @@ class GladosClient:
         self.code_results = results
         return results
 
-    @require_email_client_typed
+    @require_login_typed
     def _redeem(self, account: Account, cake_id: int) -> Optional[GladosRedeemResult]:
         result = self.server.request_redeem(cake_id)
         if not result:
@@ -360,429 +317,324 @@ class GladosClient:
         return results
 
     def collect_account_infos(self) -> List[AccountInfo]:
-            """收集所有账户的信息"""
-            logger.info("[*] 开始收集账户信息")
-            account_infos = []
+        """收集所有账户的信息"""
+        logger.info("[*] 开始收集账户信息")
+        account_infos = []
+        
+        for account in self.accounts:
+            logger.info(f"[*] 获取账户 {account.id} 信息")
+            status = self._status(account)
+            point = self._point(account)
             
-            for account in self.accounts:
-                logger.info(f"[*] 获取账户 {account.id} 信息")
-                status = self._status(account)
-                point = self._point(account)
-                
-                if status and status.success and point and point.success:
-                    # 转换为AccountInfo格式
-                    account_info = AccountInfo(
-                        id=account.id,
-                        points=int(point.points),
-                        left_days=account.leftDays,
-                        current_traffic=account.traffic,
-                        total_traffic=account.total_traffic,
-                        use_percent = (
-                            account.traffic / account.total_traffic
-                            if account.total_traffic > 0 else 0.0
-                        )
+            if status and status.success and point and point.success:
+                # 转换为AccountInfo格式
+                account_info = AccountInfo(
+                    id=account.id,
+                    points=int(point.points),
+                    left_days=account.leftDays,
+                    current_traffic=account.traffic,
+                    total_traffic=account.total_traffic,
+                    use_percent = (
+                        account.traffic / account.total_traffic
+                        if account.total_traffic > 0 else 0.0
                     )
-                    account_infos.append(account_info)
-                    logger.info(f"[+] 账户 {account.id} 信息获取成功")
-                else:
-                    logger.error(f"[!] 账户 {account.id} 信息获取失败")
+                )
+                account_infos.append(account_info)
+                logger.info(f"[+] 账户 {account.id} 信息获取成功")
+            else:
+                logger.error(f"[!] 账户 {account.id} 信息获取失败")
+        
+        self.account_infos = account_infos
+        logger.info(f"[✓] 账户信息收集完成，共 {len(account_infos)} 个账户")
+        return account_infos
+
+    def get_notifier(self) -> 'GladosNotifier':
+        """获取通知器实例"""
+        # 初始化 SMTP 客户端
+        try:
+            yagmail.sender.SMTP.__del__ = lambda self: None
+            mail = self._global_config.email
+            smtp = mail.smtp
+            smtp_client = yagmail.SMTP(
+                user=mail.username,
+                password=mail.password,
+                host=smtp.host,
+                port=smtp.port,
+                smtp_ssl=smtp.secure
+            )
+            logger.info("[+] SMTP 客户端登录成功")
             
-            self.account_infos = account_infos
-            logger.info(f"[✓] 账户信息收集完成，共 {len(account_infos)} 个账户")
-            return account_infos
-        
+            # 创建通知器
+            return GladosNotifier(
+                smtp_client=smtp_client,
+                email_to=self._global_config.email_to,
+                template_path=Path("modules/glados/templates/glados_notification.html"),
+                checkin_results=self.checkin_results,
+                code_results=self.code_results,
+                redeem_results=self.redeem_results,
+                account_infos=self.account_infos
+            )
+        except Exception as e:
+            logger.error(f"[!] 创建通知器失败: {e}", exc_info=True)
+            raise
+
+
+# -------------------------------
+# 独立通知类
+# -------------------------------
+class GladosNotifier:
+    def __init__(
+        self,
+        smtp_client: yagmail.SMTP,
+        email_to: List[str],
+        template_path: Optional[Path] = None,
+        checkin_results: Optional[List['CheckinResult']] = None,
+        code_results: Optional[List['CodeResult']] = None,
+        redeem_results: Optional[List['RedeemResult']] = None,
+        account_infos: Optional[List['AccountInfo']] = None,
+    ):
+        self.smtp_client = smtp_client
+        self.email_to = email_to
+        self.template_path = template_path
+        self.checkin_results = checkin_results or []
+        self.code_results = code_results or []
+        self.redeem_results = redeem_results or []
+        self.account_infos = account_infos or []
+
+    # ----------------------------
+    # 构建各个区域 HTML
+    # ----------------------------
     def _build_account_section(self) -> str:
-        """构建账户信息板块HTML"""
         if not self.account_infos:
-            return '<div class="section"><div class="section-title">账户信息</div><div class="no-data">暂无账户信息</div></div>'
-        
-        # 构建数据行
+            return '<div class="section"><h3>账户信息</h3><p>暂无账户信息</p></div>'
         rows = []
         for acc in self.account_infos:
             used_gb = acc.current_traffic / (1024**3)
             total_gb = acc.total_traffic / (1024**3)
             remaining_gb = total_gb - used_gb
             remaining_pct = 100 - acc.use_percent
-            
             rows.append(f"""
             <tr>
                 <td>{acc.id}</td>
                 <td>{acc.points}</td>
                 <td>{acc.left_days}</td>
-                <td>{acc.expire_at or '—'}</td>
                 <td>{used_gb:.2f} GB</td>
                 <td>{total_gb:.2f} GB</td>
-                <td>{remaining_gb:.2f} GB ({remaining_pct:.1f}%)</td>
+                <td>{remaining_gb:.2f} GB</td>
+                <td>{remaining_pct:.1f}%</td>
             </tr>
             """)
-        
-        rows_html = ''.join(rows)
-        
-        # 统计信息
-        total_accounts = len(self.account_infos)
-        avg_points = sum(acc.points for acc in self.account_infos) / total_accounts if total_accounts > 0 else 0
-        avg_days = sum(acc.left_days for acc in self.account_infos) / total_accounts if total_accounts > 0 else 0
-        
-        summary_html = f"""
-        <div class="summary">
-            <div class="summary-item">
-                <div class="summary-value">{total_accounts}</div>
-                <div class="summary-label">总账户数</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{avg_points:.0f}</div>
-                <div class="summary-label">平均积分</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{avg_days:.1f}</div>
-                <div class="summary-label">平均剩余天数</div>
-            </div>
-        </div>
-        """
-        
         return f"""
         <div class="section">
-            <div class="section-title">账户信息</div>
-            {summary_html}
+            <h3>账户信息</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>账号</th>
-                        <th>积分余额</th>
-                        <th>剩余天数</th>
-                        <th>到期时间</th>
-                        <th>已用流量</th>
-                        <th>总流量</th>
-                        <th>剩余流量</th>
+                        <th>账号</th><th>积分余额</th><th>剩余天数</th>
+                        <th>已用流量</th><th>总流量</th><th>剩余流量</th><th>剩余百分比</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
+                <tbody>{''.join(rows)}</tbody>
             </table>
         </div>
         """
-    
+
     def _build_checkin_section(self) -> str:
-        """构建签到结果板块HTML"""
         if not self.checkin_results:
             return ""
-        
         rows = []
-        success_count = 0
-        total_points = 0
-        
         for res in self.checkin_results:
-            status_class = "status-success" if res.success else "status-failed"
+            status_class = "success" if res.success else "failed"
             status_text = "✓ 成功" if res.success else "✗ 失败"
-            
-            if res.success:
-                success_count += 1
-                total_points += res.point
-            
             rows.append(f"""
             <tr>
                 <td>{res.id}</td>
-                <td><span class="{status_class}">{status_text}</span></td>
+                <td class="{status_class}">{status_text}</td>
                 <td>{res.point}</td>
                 <td>{res.message}</td>
             </tr>
             """)
-        
-        rows_html = ''.join(rows)
-        success_rate = (success_count / len(self.checkin_results) * 100) if self.checkin_results else 0
-        
-        summary_html = f"""
-        <div class="summary">
-            <div class="summary-item">
-                <div class="summary-value">{len(self.checkin_results)}</div>
-                <div class="summary-label">签到账户数</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_count}</div>
-                <div class="summary-label">成功数量</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_rate:.1f}%</div>
-                <div class="summary-label">成功率</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{total_points}</div>
-                <div class="summary-label">总获得积分</div>
-            </div>
-        </div>
-        """
-        
         return f"""
         <div class="section">
-            <div class="section-title checkin">签到结果</div>
-            {summary_html}
+            <h3>签到结果</h3>
             <table>
                 <thead>
-                    <tr>
-                        <th>账号</th>
-                        <th>签到状态</th>
-                        <th>获得积分</th>
-                        <th>详细信息</th>
-                    </tr>
+                    <tr><th>账号</th><th>状态</th><th>积分</th><th>说明</th></tr>
                 </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
+                <tbody>{''.join(rows)}</tbody>
             </table>
         </div>
         """
-    
+
     def _build_code_section(self) -> str:
-        """构建礼品码结果板块HTML"""
         if not self.code_results:
             return ""
-        
         rows = []
-        success_count = 0
-        total_days = 0
-        
         for res in self.code_results:
-            status_class = "status-success" if res.success else "status-failed"
+            status_class = "success" if res.success else "failed"
             status_text = "✓ 成功" if res.success else "✗ 失败"
-            
-            if res.success:
-                success_count += 1
-                total_days += res.days
-            
             rows.append(f"""
             <tr>
                 <td>{res.id}</td>
-                <td><span class="{status_class}">{status_text}</span></td>
+                <td class="{status_class}">{status_text}</td>
                 <td>{res.days}</td>
                 <td>{res.message}</td>
             </tr>
             """)
-        
-        rows_html = ''.join(rows)
-        success_rate = (success_count / len(self.code_results) * 100) if self.code_results else 0
-        
-        summary_html = f"""
-        <div class="summary">
-            <div class="summary-item">
-                <div class="summary-value">{len(self.code_results)}</div>
-                <div class="summary-label">兑换账户数</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_count}</div>
-                <div class="summary-label">成功数量</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_rate:.1f}%</div>
-                <div class="summary-label">成功率</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{total_days}</div>
-                <div class="summary-label">总获得天数</div>
-            </div>
-        </div>
-        """
-        
         return f"""
         <div class="section">
-            <div class="section-title code">礼品码兑换结果</div>
-            {summary_html}
+            <h3>礼品码兑换结果</h3>
             <table>
                 <thead>
-                    <tr>
-                        <th>账号</th>
-                        <th>兑换状态</th>
-                        <th>获得天数</th>
-                        <th>详细信息</th>
-                    </tr>
+                    <tr><th>账号</th><th>状态</th><th>天数</th><th>说明</th></tr>
                 </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
+                <tbody>{''.join(rows)}</tbody>
             </table>
         </div>
         """
-    
+
     def _build_redeem_section(self) -> str:
-        """构建蛋糕兑换结果板块HTML"""
         if not self.redeem_results:
             return ""
-        
         rows = []
-        success_count = 0
-        total_amount = 0
-        
         for res in self.redeem_results:
-            status_class = "status-success" if res.success else "status-failed"
+            status_class = "success" if res.success else "failed"
             status_text = "✓ 成功" if res.success else "✗ 失败"
-            
-            if res.success:
-                success_count += 1
-                total_amount += res.amount
-            
             rows.append(f"""
             <tr>
                 <td>{res.id}</td>
-                <td><span class="{status_class}">{status_text}</span></td>
+                <td class="{status_class}">{status_text}</td>
                 <td>{res.amount}</td>
                 <td>{res.message}</td>
             </tr>
             """)
-        
-        rows_html = ''.join(rows)
-        success_rate = (success_count / len(self.redeem_results) * 100) if self.redeem_results else 0
-        
-        summary_html = f"""
-        <div class="summary">
-            <div class="summary-item">
-                <div class="summary-value">{len(self.redeem_results)}</div>
-                <div class="summary-label">兑换账户数</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_count}</div>
-                <div class="summary-label">成功数量</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{success_rate:.1f}%</div>
-                <div class="summary-label">成功率</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{total_amount}</div>
-                <div class="summary-label">总获得点数</div>
-            </div>
-        </div>
-        """
-        
         return f"""
         <div class="section">
-            <div class="section-title redeem">蛋糕兑换结果</div>
-            {summary_html}
+            <h3>蛋糕兑换结果</h3>
             <table>
                 <thead>
-                    <tr>
-                        <th>账号</th>
-                        <th>兑换状态</th>
-                        <th>蛋糕点数</th>
-                        <th>详细信息</th>
-                    </tr>
+                    <tr><th>账号</th><th>状态</th><th>点数</th><th>说明</th></tr>
                 </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
+                <tbody>{''.join(rows)}</tbody>
             </table>
         </div>
         """
-    
-    def _build_email(self) -> str:
-        """构建完整的邮件HTML内容"""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # 构建各个板块
-        account_section = self._build_account_section()
-        checkin_section = self._build_checkin_section()
-        code_section = self._build_code_section()
-        redeem_section = self._build_redeem_section()
-        
-        # 加载模板
-        try:
-            template_path = Path("modules/glados/templates/glados_notification.html")
-            html_tpl = template_path.read_text(encoding="utf-8")
-            
-            # 替换占位符
-            replacements = {
-                "{{ current_time }}": current_time,
-                "{{ account_section }}": account_section,
-                "{{ checkin_section }}": checkin_section,
-                "{{ code_section }}": code_section,
-                "{{ redeem_section }}": redeem_section
-            }
-            
-            html_body = html_tpl
-            for placeholder, content in replacements.items():
-                html_body = html_body.replace(placeholder, content)
-            
-            return minify(html_body, remove_empty_space=True, remove_comments=True)
-            
-        except Exception as e:
-            logger.error(f"[!] 加载邮件模板失败: {e}", exc_info=True)
-            return self._build_fallback_email(current_time)
-    
-    def _build_fallback_email(self, current_time: str) -> str:
-        """模板加载失败时构建备用邮件"""
-        sections = [
-            self._build_account_section(),
-            self._build_checkin_section(),
-            self._build_code_section(),
-            self._build_redeem_section()
-        ]
-        
-        # 过滤空的部分
-        sections = [section for section in sections if section]
-        
-        if not sections:
-            return ""
-        
-        # 构建简单的HTML
-        html_content = f"""<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>GLaDOS 操作结果通知</title></head>
-<body style="font-family: sans-serif; padding: 20px;">
-    <h2>GLaDOS 操作结果通知</h2>
-    <p>报告时间：{current_time}</p>
-    {''.join(sections)}
-    <p style="font-size: 12px; color: #888; margin-top: 20px;">
-        此邮件由系统自动发送，请勿回复。
-    </p>
-</body>
-</html>"""
-        
-        return minify(html_content, remove_empty_space=True, remove_comments=True)
-    
-    @require_email_client_typed
-    def send_result_notification(self) -> bool:
-        """发送结果通知邮件"""
-        logger.info("[*] 开始发送 GLaDOS 操作结果通知")
-        
-        email_to = self._global_config.email_to
-        
-        # 检查是否有数据
-        has_data = any([
-            self.account_infos,
-            self.checkin_results,
-            self.code_results,
-            self.redeem_results
-        ])
-        
-        if not has_data:
-            logger.warning("[!] 没有可发送的结果数据")
-            return False
-        
-        # 构建邮件内容
-        html_body = self._build_email()
-        if not html_body:
-            logger.error("[!] 构建邮件内容失败")
-            return False
-        
-        # 生成主题
-        subject = "GLaDOS 运行结果报告"
-        
-        # 发送邮件
-        try:
-            if self.smtp_client:
-                self.smtp_client.send(
-                    to=email_to,
-                    subject=subject,
-                    contents=[html_body],
-                )
-                logger.info("[*] 发送 GLaDOS 操作结果通知成功")
 
-                self.smtp_client.close()
-                self.smtp_client = None
-                return True
-            else:
-                logger.error("[!] SMTP 客户端未初始化")
+    # ----------------------------
+    # 构建完整邮件
+    # ----------------------------
+    def _build_email_body(self) -> str:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 如果有模板文件，则读取并替换占位符
+        if self.template_path and self.template_path.exists():
+            try:
+                html_tpl = self.template_path.read_text(encoding="utf-8")
+                replacements = {
+                    "{{current_time}}": now,
+                    "{{account_section}}": self._build_account_section(),
+                    "{{checkin_section}}": self._build_checkin_section(),
+                    "{{code_section}}": self._build_code_section(),
+                    "{{redeem_section}}": self._build_redeem_section()
+                }
+                for k, v in replacements.items():
+                    html_tpl = html_tpl.replace(k, v)
+                return minify(html_tpl, remove_empty_space=True, remove_comments=True)
+            except Exception as e:
+                logger.error(f"[!] 读取模板失败，将使用内置 HTML：{e}", exc_info=True)
+
+        # 内置备用 HTML
+        # 内置备用 HTML（美化版）
+        html = f"""
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <title>GLaDOS 运行结果通知</title>
+            <style>
+                body {{
+                    font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+                    background:#f6f8fa;
+                    padding:20px;
+                    color:#333;
+                }}
+                h2 {{
+                    text-align:center;
+                    color:#222;
+                    margin-bottom:10px;
+                }}
+                .section {{
+                    background:#fff;
+                    border-radius:8px;
+                    padding:15px 20px;
+                    margin-bottom:30px;
+                    box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+                }}
+                .section h3 {{
+                    background:#4CAF50;
+                    color:#fff;
+                    padding:8px 12px;
+                    border-radius:5px;
+                    margin-top:0;
+                }}
+                table {{
+                    width:100%;
+                    border-collapse: collapse;
+                    margin-top:10px;
+                    table-layout:auto;
+                }}
+                th, td {{
+                    border:1px solid #ddd;
+                    padding:10px 12px;
+                    text-align:center;
+                    word-break:break-word;
+                }}
+                th {{
+                    background:#4CAF50;
+                    color:#fff;
+                }}
+                tr:nth-child(even) {{ background:#f9f9f9; }}
+                .success {{ color:#4CAF50; font-weight:bold; }}
+                .failed {{ color:#F44336; font-weight:bold; }}
+                p.time {{
+                    text-align:center;
+                    color:#555;
+                    margin-bottom:15px;
+                }}
+                p.footer {{
+                    text-align:center;
+                    font-size:12px;
+                    color:#888;
+                    margin-top:20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <h2>GLaDOS 运行结果通知</h2>
+            <p class="time">报告时间：{now}</p>
+            {self._build_account_section()}
+            {self._build_checkin_section()}
+            {self._build_code_section()}
+            {self._build_redeem_section()}
+            <p class="footer">此邮件由系统自动发送，请勿回复。</p>
+        </body>
+        </html>
+        """
+        return minify(html, remove_empty_space=True, remove_comments=True)
+
+    # ----------------------------
+    # 发送邮件
+    # ----------------------------
+    def send(self, subject: str = "GLaDOS 运行结果通知") -> bool:
+        if not any([self.account_infos, self.checkin_results, self.code_results, self.redeem_results]):
+            logger.warning("[!] 没有可发送的数据")
+            return False
+        try:
+            html_body = self._build_email_body()
+            self.smtp_client.send(to=self.email_to, subject=subject, contents=[html_body])
+            logger.info("[+] GLaDOS 操作结果通知邮件发送成功")
+            self.smtp_client.close()
             return True
-
         except Exception as e:
-            logger.error(f"[!] 发送邮件失败: {e}", exc_info=True)
+            logger.error(f"[!] 邮件发送失败: {e}", exc_info=True)
             return False

@@ -101,13 +101,11 @@ class EmailCodeExtractor:
         获取登录验证码
         """
         try:
+            import time
             max_attempts = (max_wait_minutes * 60) // check_interval_seconds
-            attempts = 0
-            login_code = None
-
-            while attempts < max_attempts:
-                attempts += 1
-                logger.debug(f"[*] 第 {attempts}/{max_attempts} 次尝试获取验证码")
+            
+            for attempt in range(1, max_attempts + 1):
+                logger.debug(f"[*] 第 {attempt}/{max_attempts} 次尝试获取验证码")
 
                 # 获取最近1天的邮件
                 summaries = self.list_mail_summaries(days=1)
@@ -133,9 +131,14 @@ class EmailCodeExtractor:
                         if match:
                             login_code = match.group(1)
                             logger.debug(f"[+] 从纯文本提取到验证码: {login_code}")
-                            break
+                            return login_code
 
-            return login_code
+                # 如果这不是最后一次尝试，则等待
+                if attempt < max_attempts:
+                    logger.debug(f"[*] 等待 {check_interval_seconds} 秒后重试...")
+                    time.sleep(check_interval_seconds)
+
+            return None
 
         except Exception as e:
             logger.error(f"[!] 获取验证码过程中出错: {e}")

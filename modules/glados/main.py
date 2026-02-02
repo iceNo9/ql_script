@@ -81,7 +81,7 @@ def main():
     glados_config = glados_config_manager.read()
     logger.info(f"Glados Config Init OK")
 
-    data_manager = GladosDataManager(r"./modules/glados/data/date.yaml")
+    data_manager = GladosDataManager(r"./modules/glados/data/data.yaml")
     # 简单数据存储
     data = data_manager.read()
     logger.info(f"Data Init OK")
@@ -92,10 +92,12 @@ def main():
 
         try:
             client = GladosClient(global_config.proxy, working_accounts, global_config)
-            client.checkin()
-            client.send_result_notification()
+            client.checkin()            
             # client.code()
             # client.cake()
+            client.collect_account_infos()
+            notify = client.get_notifier()
+            notify.send()
             data_manager.save()
         except Exception as e:
             logger.error(f"Glados 运行中发生错误: {e}")

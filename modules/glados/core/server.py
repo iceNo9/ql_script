@@ -23,7 +23,7 @@ class GladosEndpoints:
     CHECKIN = "/api/user/checkin"                  # POST 签到
     STATUS = "/api/user/status"                    # GET  获取用户状态
     CODE = "/api/user/code"                        # POST 兑换礼品码
-    POINT =  "/api/user/point"                     # GET  获取积分信息
+    POINT =  "/api/user/points"                     # GET  获取积分信息
     CAKES = "/api/user/cakes"                      # GET  获取蛋糕列表
     REDEEM = "/api/user/cake/redeem"               # POST 兑换蛋糕
 
