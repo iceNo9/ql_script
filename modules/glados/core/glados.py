@@ -102,7 +102,7 @@ class GladosClient:
         self.checkin_results = []
         self.code_results = []
         self.redeem_results = []
-        self.account_results = []
+        self.account_infos = []
 
     # -------------------------------
     # 内部工具方法
@@ -113,6 +113,7 @@ class GladosClient:
             return self.smtp_client
 
         try:
+            yagmail.sender.SMTP.__del__ = lambda self: None
             mail = self._global_config.email
             smtp = mail.smtp
             self.smtp_client = yagmail.SMTP(
@@ -774,21 +775,14 @@ class GladosClient:
                     contents=[html_body],
                 )
                 logger.info("[*] 发送 GLaDOS 操作结果通知成功")
+
+                self.smtp_client.close()
+                self.smtp_client = None
+                return True
             else:
                 logger.error("[!] SMTP 客户端未初始化")
-
             return True
 
         except Exception as e:
             logger.error(f"[!] 发送邮件失败: {e}", exc_info=True)
             return False
-
-        finally:
-            # ⭐ 关键：主动关闭，避免 __del__
-            try:
-                if self.smtp_client:
-                    self.smtp_client.close()
-                    self.smtp_client = None
-                    logger.debug("[*] SMTP 客户端已关闭")
-            except Exception:
-                pass

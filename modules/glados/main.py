@@ -98,6 +98,7 @@ def main():
             # client.cake()
             data_manager.save()
         except Exception as e:
+            logger.error(f"Glados 运行中发生错误: {e}")
             pass
 
 if __name__ == "__main__":
