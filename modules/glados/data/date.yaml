@@ -1,0 +1,23 @@
+accounts:
+  accounts:
+    - id: 01_nahuaiqiang74@163.com
+      username: nahuaiqiang74@163.com
+      balance: 0.0
+      leftDays: 0
+      expireAt:
+      traffic: 0
+      total_traffic: 5368709120
+      vip_level: 0
+      cookies:
+        koa:sess: 
+          eyJ1c2VySWQiOjY1MTQxNSwiX2V4cGlyZSI6MTc5NTkzODM1Nzc1NSwiX21heEFnZSI6MjU5MjAwMDAwMDB9
+        koa:sess.sig: sszAa5Hd_Vw3tXJaGAsgfXsevCU
+    - id: 02_gonger9628@163.com
+      username: gonger9628@163.com
+      balance: 0.0
+      leftDays: 0
+      expireAt:
+      traffic: 0
+      total_traffic: 5368709120
+      vip_level: 0
+      cookies: {}

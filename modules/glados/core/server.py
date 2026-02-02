@@ -6,11 +6,7 @@ from pydantic import BaseModel
 
 from common.log import get_logger
 from common.global_config import GlobalConfig, EmailConfig, IMAPConfig
-
-from modules.glados.config.config import Config
-from modules.glados.core.account import Account
 from modules.glados.utils.request_client import RequestClient
-from modules.glados.email import EmailCodeExtractor, GiftCode
 
 logger = get_logger(__name__)
 
@@ -192,8 +188,8 @@ class GladosStatusResult:
         cake_count: int = 0,
         raw: Optional[Dict[str, Any]] = None,
     ):
-        success = success
-        code = code
+        self.success = success
+        self.code = code
         self.traffic = traffic
         self.vip = vip
         self.left_days = left_days
@@ -207,11 +203,10 @@ class GladosStatusResult:
 
         data: 整个接口返回（包含 code / data）
         """
-        success = data.get("code") == 0
         payload = data.get("data", {})
 
         return cls(
-            success=success,
+            success=data.get("code") == 0,
             code=int(data.get("code", -1)),
             traffic=int(payload.get("traffic", 0)),
             vip=int(payload.get("vip", 0)),
@@ -420,7 +415,6 @@ class GladosServer:
                 url,
                 json=payload.model_dump(),
                 headers=headers,
-                prefer_proxy=True
             )
                         
             success, result = self._handle_response(response)            
@@ -458,7 +452,6 @@ class GladosServer:
                 url,
                 json=payload.model_dump(),
                 headers=headers,
-                prefer_proxy=True
             )
             
             success, result = self._handle_response(response)
@@ -488,7 +481,6 @@ class GladosServer:
             response = self.client.get(
                 url,
                 headers=headers,
-                prefer_proxy=True
             )
 
             success, result = self._handle_response(response)
@@ -522,7 +514,6 @@ class GladosServer:
                 url,
                 json=payload.model_dump(),
                 headers=headers,
-                prefer_proxy=True
             )
             
             success, result = self._handle_response(response)
@@ -554,7 +545,6 @@ class GladosServer:
             response = self.client.get(
                 url,
                 headers=headers,
-                prefer_proxy=True
             )
             
             success, result = self._handle_response(response)
@@ -594,7 +584,6 @@ class GladosServer:
                 url,
                 json=payload.model_dump(),
                 headers=headers,
-                prefer_proxy=True,
                 timeout=30
             )
             
@@ -629,7 +618,6 @@ class GladosServer:
             response = self.client.get(
                 url,
                 headers=headers,
-                prefer_proxy=True
             )
 
             success, result = self._handle_response(response)
@@ -667,7 +655,6 @@ class GladosServer:
                 url,
                 json=payload.model_dump(),
                 headers=headers,
-                prefer_proxy=True,
             )
 
             success, result = self._handle_response(response)

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>GLaDOS 操作结果通知</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background-color: #f6f8fa;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h2 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .header p {
+            color: #555;
+            margin: 0;
+        }
+        .section {
+            margin-bottom: 30px;
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .section-title {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 15px 20px;
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .section-title.checkin { background: linear-gradient(135deg, #2196F3 0%, #0d8aee 100%); }
+        .section-title.code { background: linear-gradient(135deg, #FF9800 0%, #f57c00 100%); }
+        .section-title.redeem { background: linear-gradient(135deg, #9C27B0 0%, #7b1fa2 100%); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background-color: #f8f9fa;
+            color: #333;
+            font-weight: 600;
+            text-align: left;
+            padding: 12px 15px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eaeaea;
+            color: #555;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .status-success {
+            color: #4CAF50;
+            font-weight: 600;
+        }
+        .status-failed {
+            color: #f44336;
+            font-weight: 600;
+        }
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eaeaea;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+            font-style: italic;
+        }
+        .summary {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #4CAF50;
+        }
+        .summary-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>GLaDOS 操作结果通知</h2>
+        <p>报告时间：{{ current_time }}</p>
+    </div>
+    
+    {{ account_section }}
+    {{ checkin_section }}
+    {{ code_section }}
+    {{ redeem_section }}
+    
+    <div class="footer">
+        此邮件由系统自动发送，请勿回复。<br>
+        如有疑问，请查看相关操作日志。
+    </div>
+</body>
+</html>

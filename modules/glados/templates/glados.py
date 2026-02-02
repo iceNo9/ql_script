@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from common.notify import ql_notify
-from common.logger import logger
+from common.log import logger
 from modules.glados.config.config import Config
 
 

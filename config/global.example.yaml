@@ -1,0 +1,18 @@
+global:
+  email:
+    username: your_email_username
+    password: your_email_password
+    imap:
+      host: imap.qq.com
+      port: 993
+      secure: true
+    smtp:
+      host: smtp.qq.com
+      port: 465
+      secure: true
+
+  email_to:
+    - your_email_address
+
+  proxy:
+    - http://your_proxy_address:your_proxy_port

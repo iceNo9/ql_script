@@ -2,7 +2,7 @@
 from common.global_config import EmailConfig, GlobalConfigManager
 from common.log import get_logger
 
-from modules.glados.email import EmailCodeExtractor, MailSummary, MailDetail
+from modules.glados.core.email import EmailCodeExtractor, MailSummary, MailDetail
 
 
 

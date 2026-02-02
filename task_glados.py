@@ -1,6 +1,6 @@
 from modules.glados.glados import GladosClient
 from modules.glados.config.config import Config
-from common.logger import logger
+from common.log import logger
 import datetime
 import time
 
