@@ -324,9 +324,12 @@ class GladosClient:
         for account in self.accounts:
             logger.info(f"[*] 获取账户 {account.id} 信息")
             status = self._status(account)
-            point = self._point(account)
+            point = self._point(account)            
             
             if status and status.success and point and point.success:
+
+                account.balance = point.points
+                
                 # 转换为AccountInfo格式
                 account_info = AccountInfo(
                     id=account.id,
