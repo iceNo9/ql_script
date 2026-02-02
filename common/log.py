@@ -27,7 +27,7 @@ def _init_logging():
 
         if not app_logger.handlers:
             console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.DEBUG)
+            console_handler.setLevel(logging.INFO)
 
             # ⭐ 关键在这里：pathname + lineno
             formatter = logging.Formatter(

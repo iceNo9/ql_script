@@ -98,12 +98,13 @@ class EmailCodeExtractor:
 
     def get_login_code(self, email_address: str, max_wait_minutes: int = 5, check_interval_seconds: int = 10) -> Optional[str]:
         """
-        获取登录验证码
+        获取登录验证码（优化：先找到 '验证码' 或 'code' 关键词，再在其后匹配 5~7 位连续数字）
         """
         try:
             import time
             max_attempts = (max_wait_minutes * 60) // check_interval_seconds
-            
+            keywords = ["验证码", "code"]  # 支持多关键字
+
             for attempt in range(1, max_attempts + 1):
                 logger.debug(f"[*] 第 {attempt}/{max_attempts} 次尝试获取验证码")
 
@@ -124,14 +125,22 @@ class EmailCodeExtractor:
 
                     # 获取邮件详细
                     detail = self.get_mail_detail_by_uid(summary.uid)
-                    if detail:
-                        # 在text_plain中正则匹配连续6个数字
-                        code_pattern = r'\b(\d{6})\b'
-                        match = re.search(code_pattern, detail.text_plain)
-                        if match:
-                            login_code = match.group(1)
-                            logger.debug(f"[+] 从纯文本提取到验证码: {login_code}")
-                            return login_code
+                    if detail and detail.text_plain:
+                        text = detail.text_plain
+
+                        for keyword in keywords:
+                            keyword_pos = text.lower().find(keyword.lower())
+                            if keyword_pos != -1:
+                                # 取关键词之后的 50 个字符作为搜索范围
+                                search_window = text[keyword_pos: keyword_pos + 50]
+                                code_pattern = r'\b(\d{5,7})\b'
+                                match = re.search(code_pattern, search_window)
+                                if match:
+                                    login_code = match.group(1)
+                                    logger.debug(f"[+] 从 '{keyword}' 后提取到验证码: {login_code}")
+                                    self.delete_email(summary.uid)
+                                    logger.debug(f"[*] 删除邮件: {summary.subject}")
+                                    return login_code
 
                 # 如果这不是最后一次尝试，则等待
                 if attempt < max_attempts:
@@ -149,6 +158,7 @@ class EmailCodeExtractor:
         获取礼品码
         """
         gift_codes = []
+        target_folder = "已兑换礼品码"
 
         try:
             # 获取最近7天的邮件摘要
@@ -181,8 +191,8 @@ class EmailCodeExtractor:
                     if match:
                         gift_code.code = match.group(1)
                         logger.debug(f"[+] 从邮件内容中提取到礼品码: {gift_code.code}")
-
-                
+                        self.move_email(summary.uid, target_folder)
+                        logger.debug(f"[+] 将邮件移动到文件夹{target_folder}")                
                 
                 gift_codes.append(gift_code)
 

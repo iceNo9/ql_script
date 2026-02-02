@@ -93,8 +93,8 @@ def main():
         try:
             client = GladosClient(global_config.proxy, working_accounts, global_config)
             client.checkin()            
-            # client.code()
-            # client.cake()
+            client.code()
+            client.cake()
             client.collect_account_infos()
             notify = client.get_notifier()
             notify.send()
