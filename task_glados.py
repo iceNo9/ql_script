@@ -1,15 +1,4 @@
-from modules.glados.glados import GladosClient
-from modules.glados.config.config import Config
-from common.log import logger
-import datetime
-import time
+from modules.glados.main import main
 
-def main():
-    config = Config("modules/glados/config.yaml", "modules/glados/config.yaml")
-
-    client = GladosClient(config)
-    client.redeem_gift_codes()
-    client.checkin_all()
-    
 if __name__ == "__main__":
     main()
