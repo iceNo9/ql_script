@@ -157,10 +157,10 @@ class GladosCheckinReqest(BaseModel):
     token: str = "glados.cloud"
 
 class GladosCheckinResult:
-    def __init__(self, success: bool, code: int, point: int, message: str, raw: Optional[dict] = None):
+    def __init__(self, success: bool, code: int, points: int, message: str, raw: Optional[dict] = None):
         self.success = success
         self.code = code
-        self.point = point
+        self.points = points
         self.message = message
         self.raw = raw or {}
 
@@ -170,7 +170,7 @@ class GladosCheckinResult:
         return cls(
             success=success,
             code=data.get("code", -1),
-            point=data.get("point", 0),
+            points=data.get("points", 0),
             message=data.get("message", ""),
             raw=data,
         )

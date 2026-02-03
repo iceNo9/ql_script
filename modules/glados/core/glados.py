@@ -168,7 +168,7 @@ class GladosClient:
                 result = CheckinResult(
                     id=account.id,
                     success=ret.success,
-                    point=ret.point,
+                    point=ret.points,
                     message=ret.message,
                 )            
                 results.append(result)
