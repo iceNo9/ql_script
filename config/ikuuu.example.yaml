@@ -1,7 +1,9 @@
-glados:
+ikuuu:
   accounts:
     - id: "example"
       username: "example"
+      password: "example"
 
     - id: "example2"
       username: "example2"
+      password: "example2"
