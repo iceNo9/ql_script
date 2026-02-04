@@ -1,0 +1,7 @@
+glados:
+  accounts:
+    - id: "example"
+      username: "example"
+
+    - id: "example2"
+      username: "example2"
