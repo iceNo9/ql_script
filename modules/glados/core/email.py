@@ -187,7 +187,7 @@ class EmailCodeExtractor:
                 if detail:
                     # 在text_plain中正则匹配类似"Q12JC-D7LCM-FE1OO-JNWZO"
                     code_pattern = r'\b([A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5})\b'
-                    match = re.search(code_pattern, detail.text_plain)
+                    match = re.search(code_pattern, detail.text_html)
                     if match:
                         gift_code.code = match.group(1)
                         logger.debug(f"[+] 从邮件内容中提取到礼品码: {gift_code.code}")

@@ -211,7 +211,7 @@ class GladosClient:
                         result = CodeResult(
                             id=account.id,
                             success=ret.success,
-                            days=int(gift_code.valid_day),
+                            days=int(gift_code.valid_day) if ret.success else 0,
                             message=ret.message
                         )
                         results.append(result)
