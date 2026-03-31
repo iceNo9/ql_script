@@ -26,7 +26,7 @@ class GladosEndpoints:
     POINT =  "/api/user/points"                     # GET  获取积分信息
     CAKES = "/api/user/cakes"                      # GET  获取蛋糕列表
     REDEEM = "/api/user/cake/redeem"               # POST 兑换蛋糕
-
+    EXCHANGE = "/api/user/exchange"                # POST 积分兑换天数
     
     # 其他（如有需要）
     USAGE = "/api/user/usage"                      # GET  获取使用情况
@@ -315,6 +315,79 @@ class GladosRedeemResult:
             message=data.get("message", ""),
             raw=data,
         )
+    
+class GladosExchangeRequest(BaseModel):
+    """积分兑换请求模型"""
+    planType: str  # 兑换计划类型，如 "plan100/plan200/plan500"
+
+class GladosExchangeResult:
+    """GLaDOS 积分兑换结果"""
+    
+    def __init__(
+        self,
+        success: bool,
+        code: int,
+        message: str = "",
+        points_used: int = 0,
+        days_added: int = 0,
+        points_remaining: float = 0.0,
+        history: Optional[List[GladosPointHistoryItem]] = None,
+        raw: Optional[Dict[str, Any]] = None,
+    ):
+        self.success = success
+        self.code = code
+        self.message = message
+        self.points_used = points_used
+        self.days_added = days_added
+        self.points_remaining = points_remaining
+        self.history = history or []
+        self.raw = raw
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "GladosExchangeResult":
+        """
+        从 API 响应创建 GladosExchangeResult 实例
+        
+        Args:
+            data: API 响应数据
+            
+        Returns:
+            GladosExchangeResult 实例
+        """
+        success = data.get("code") == 0
+        
+        # 解析历史记录
+        history_items = [
+            GladosPointHistoryItem.from_dict(item)
+            for item in data.get("history", [])
+        ]
+        
+        # 解析积分余额（可能是字符串格式）
+        points_remaining = 0.0
+        if "points" in data:
+            try:
+                points_remaining = float(data.get("points", 0))
+            except (ValueError, TypeError):
+                points_remaining = 0.0
+        
+        return cls(
+            success=success,
+            code=data.get("code", -1),
+            message=data.get("message", ""),
+            points_used=data.get("pointsUsed", 0),
+            days_added=data.get("daysAdded", 0),
+            points_remaining=points_remaining,
+            history=history_items,
+            raw=data,
+        )
+    
+    def __str__(self) -> str:
+        """友好的字符串表示"""
+        if self.success:
+            return f"兑换成功: 使用 {self.points_used} 积分获得 {self.days_added} 天，剩余积分: {self.points_remaining}"
+        else:
+            return f"兑换失败: {self.message} (code: {self.code})"
+        
 
 
 class GladosServer:
@@ -669,6 +742,54 @@ class GladosServer:
 
         except Exception as e:
             logger.error(f"[!] 蛋糕兑换请求异常: {e}")
+            return None
+        
+    
+    def request_exchange(self, plan_type: str = "plan500") -> Optional[GladosExchangeResult]:
+        """
+        使用积分兑换天数
+        
+        Args:
+            plan_type: 兑换计划类型，默认为 "plan500" (500积分兑换100天)
+                       可选值: "plan500", "plan200", 等根据实际API支持
+            
+        Returns:
+            Optional[GladosExchangeResult]: 兑换结果，失败返回 None
+            
+        Example:
+            result = glados.request_exchange("plan500")
+            if result and result.success:
+                print(f"获得 {result.days_added} 天，消耗 {result.points_used} 积分")
+            else:
+                print(f"兑换失败: {result.message if result else '未知错误'}")
+        """
+        endpoint = GladosEndpoints.EXCHANGE
+        url = self._build_url(endpoint)
+        payload = GladosExchangeRequest(planType=plan_type)
+        headers = self._get_headers()
+        
+        try:
+            logger.info(f"[*] 积分兑换: {plan_type}")
+            response = self.client.post(
+                url,
+                json=payload.model_dump(),
+                headers=headers,
+                timeout=30
+            )
+            
+            success, result = self._handle_response(response)
+            exchange_result = GladosExchangeResult.from_dict(result)
+            
+            if success and exchange_result.success:
+                logger.info(f"[+] 积分兑换成功: 使用 {exchange_result.points_used} 积分获得 {exchange_result.days_added} 天")
+                logger.info(f"[+] 剩余积分: {exchange_result.points_remaining}")
+            else:
+                logger.warning(f"[!] 积分兑换失败: {exchange_result.message}")
+                
+            return exchange_result
+            
+        except Exception as e:
+            logger.error(f"[!] 积分兑换请求异常: {e}")
             return None
             
     # -------------------------------

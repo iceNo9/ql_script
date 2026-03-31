@@ -95,6 +95,7 @@ def main():
             client.checkin()            
             client.code()
             client.cake()
+            client.exchange()
             client.collect_account_infos()
             notify = client.get_notifier()
             notify.send()
