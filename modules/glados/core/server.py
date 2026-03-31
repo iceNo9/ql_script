@@ -808,7 +808,7 @@ class GladosServer:
         if vip_level == 21:
             return 200 * 1024 * 1024 * 1024  # 200GB
         else:
-            return 5 * 1024 * 1024 * 1024  # 5GB
+            return 10 * 1024 * 1024 * 1024  # 10GB
     
     # -------------------------------
     # Cookies 管理
