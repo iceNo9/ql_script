@@ -60,7 +60,7 @@ class AccountInfo(BaseModel):
     left_days: int
     current_traffic: int
     total_traffic: int
-    use_percent: float
+    use_percent: float  # 使用率，范围 0-100，如 75.5 表示 75.5%
 
 def require_login_typed(func: Callable[Concatenate['GladosClient', Account, P], R]
                        ) -> Callable[Concatenate['GladosClient', Account, P], Optional[R]]:
@@ -455,6 +455,12 @@ class GladosClient:
             if status and status.success and point and point.success:
 
                 account.balance = point.points
+                # 计算使用率（百分比形式，0-100）
+                if account.total_traffic > 0:
+                    use_percent = (account.traffic / account.total_traffic) * 100                    
+                else:
+                    use_percent = 0.0
+                    logger.warning(f"[!] 账户 {account.id} 总流量为0，使用率设为0%")
 
                 # 转换为AccountInfo格式
                 account_info = AccountInfo(
@@ -463,10 +469,7 @@ class GladosClient:
                     left_days=account.leftDays,
                     current_traffic=account.traffic,
                     total_traffic=account.total_traffic,
-                    use_percent = (
-                        account.traffic / account.total_traffic
-                        if account.total_traffic > 0 else 0.0
-                    )
+                    use_percent = use_percent
                 )
                 account_infos.append(account_info)
                 logger.info(f"[+] 账户 {account.id} 信息获取成功")

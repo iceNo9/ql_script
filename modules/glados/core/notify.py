@@ -41,15 +41,18 @@ class GladosNotifier:
             used_gb = acc.current_traffic / (1024**3)
             total_gb = acc.total_traffic / (1024**3)
             remaining_gb = total_gb - used_gb
-            remaining_pct = 100 - acc.use_percent
+            use_percent = acc.use_percent  # 可能是超过100的值
+            remaining_pct = max(0, 100 - use_percent)  # 限制最小为0
             
             # 确定使用率颜色
             if acc.use_percent < 50:
                 usage_color = "#28a745"  # 绿色
             elif acc.use_percent < 80:
                 usage_color = "#ffc107"  # 黄色
+            elif acc.use_percent < 100:
+                usage_color = "#fd7e14"  # 橙色
             else:
-                usage_color = "#dc3545"  # 红色
+                usage_color = "#dc3545"  # 红色（包含超过100%的情况）
             
             rows.append(f'''
             <tr>
@@ -58,7 +61,9 @@ class GladosNotifier:
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{acc.left_days}天</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{used_gb:.1f}GB / {total_gb:.1f}GB</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{remaining_gb:.1f}GB</td>
-                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:{usage_color}; font-weight:bold;">{acc.use_percent:.1f}%</td>
+                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:{usage_color}; font-weight:bold;">
+                    {acc.use_percent:.1f}%
+                </td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{remaining_pct:.1f}%</td>
             </tr>
             ''')
