@@ -350,7 +350,7 @@ class GladosClient:
     
     def exchange(self, plan_type: str = "plan500") -> Optional[GladosExchangeResult]:
         """
-        智能积分兑换：当所有账户剩余天数都为0时，选择积分最多的账户进行兑换
+        智能积分兑换：当所有账户剩余天数都为0时，选择积分最接近所需积分（最低但足够）的账户进行兑换
         
         Args:
             plan_type: 兑换计划类型，默认为 "plan500" (500积分兑换100天)
@@ -361,7 +361,7 @@ class GladosClient:
         Logic:
             1. 检查所有账户的剩余天数
             2. 如果所有账户剩余天数都 <= 0，则继续
-            3. 选择积分最多的账户
+            3. 选择积分最接近所需积分（最低但足够）的账户
             4. 检查该账户积分是否足够兑换
             5. 执行兑换
         """
@@ -408,17 +408,26 @@ class GladosClient:
         
         logger.info("[!] 所有账户剩余天数均为0，准备进行积分兑换")
         
-        # 选择积分最多的账户
-        max_points_account = max(accounts_status, key=lambda x: x['points'])
-        target_account = max_points_account['account']
-        max_points = max_points_account['points']
+        # 筛选出积分足够的账户
+        eligible_accounts = [s for s in accounts_status if s['points'] >= required_points]
         
-        logger.info(f"[*] 选择账户 {target_account.id} 进行兑换，当前积分: {max_points}")
-        
-        # 检查积分是否足够兑换
-        if max_points < required_points:
-            logger.error(f"[!] 账户 {target_account.id} 积分不足: 需要 {required_points} 积分，当前只有 {max_points} 积分")
+        if not eligible_accounts:
+            logger.error(f"[!] 没有账户积分足够兑换: 需要 {required_points} 积分")
+            # 显示所有账户的积分情况
+            for status in accounts_status:
+                logger.info(f"[i] 账户 {status['account'].id}: 当前积分 {status['points']}")
             return None
+        
+        # 选择积分最接近所需积分（最低但足够）的账户
+        # 按积分升序排序，取第一个（积分最低但足够）
+        eligible_accounts.sort(key=lambda x: x['points'])
+        best_account = eligible_accounts[0]
+        
+        target_account = best_account['account']
+        target_points = best_account['points']
+        
+        logger.info(f"[*] 选择账户 {target_account.id} 进行兑换，当前积分: {target_points} (所需: {required_points})")
+        logger.info(f"[*] 该账户积分超出所需: {target_points - required_points} 分")
         
         # 执行兑换
         logger.info(f"[*] 开始兑换: 账户 {target_account.id} 使用 {plan_type} 计划")
@@ -426,6 +435,7 @@ class GladosClient:
         
         if result and result.success:
             logger.info(f"[✓] 智能兑换成功: 账户 {target_account.id} 获得 {result.days_added} 天，消耗 {result.points_used} 积分")
+            logger.info(f"[✓] 兑换后剩余积分: {result.points_remaining}")
         else:
             logger.error(f"[✗] 智能兑换失败: {result.message if result else '未知错误'}")
         
