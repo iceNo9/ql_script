@@ -1,0 +1,25 @@
+[project]
+name = "ql-script"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "hupo",email = "3222973652@qq.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "pydantic (>=2.13.4,<3.0.0)",
+    "ruamel-yaml (>=0.19.1,<0.20.0)",
+    "email-validator (>=2.3.0,<3.0.0)",
+    "requests (>=2.33.1,<3.0.0)",
+    "imapclient (>=3.1.0,<4.0.0)",
+    "mail-parser (>=4.2.1,<5.0.0)",
+    "yagmail (>=0.15.293,<0.16.0)",
+    "htmlmin (>=0.1.12,<0.2.0)",
+    "brotli (>=1.2.0,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
