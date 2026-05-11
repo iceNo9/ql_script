@@ -1,7 +1,10 @@
+# config/glados.yaml
 glados:
   accounts:
-    - id: "example"
-      username: "example"
-
-    - id: "example2"
-      username: "example2"
+    - username: "user1@example.com"
+    - username: "user2@example.com"
+  
+  renewals:
+    - username: "user1@example.com"
+      plan_type: "plan500"
+      days_threshold: 2

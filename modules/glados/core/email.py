@@ -1,4 +1,4 @@
-# modules/glados/email_extractor.py
+# modules\glados\core\email.py
 import re
 import time
 from datetime import datetime, timedelta

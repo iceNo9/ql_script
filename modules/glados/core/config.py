@@ -1,4 +1,4 @@
-# modules/glados/glados_config.py
+# modules\glados\core\config.py
 
 from pathlib import Path
 from typing import List, Optional
@@ -13,23 +13,34 @@ logger = get_logger(__name__)
 # Pydantic Schema
 # ----------------------
 class GladosAccount(BaseModel):
-    id: str = Field(..., description="账号唯一ID")
-    username: str = Field(..., description="账号用户名")
+    """GLaDOS 账号配置"""
+    username: str = Field(..., description="账号用户名（主键）")
+
+class GladosRenewalConfig(BaseModel):
+    """续费配置"""
+    username: str = Field(..., description="续费的账号用户名")
+    plan_type: str = Field(default="plan500", description="续费计划类型: plan100, plan200, plan500")
+    days_threshold: int = Field(default=2, description="剩余天数阈值，低于此值触发续费")
 
 class GladosConfigModel(BaseModel):
     accounts: List[GladosAccount] = Field(
         default_factory=lambda: [
-            GladosAccount(id="example", username="example"),
-            GladosAccount(id="example2", username="example2"),
+            GladosAccount(username="example"),
+            GladosAccount(username="example2"),
         ],
         description="Glados 账号列表"
+    )
+    
+    renewals: List[GladosRenewalConfig] = Field(
+        default_factory=list,
+        description="续费配置列表"
     )
 
 # ----------------------
 # 配置管理类
 # ----------------------
 class GladosConfigManager:
-    def __init__(self, path: str ):
+    def __init__(self, path: str):
         self.path = Path(path)
         self.config: GladosConfigModel | None = None
         self._yaml = YAML()
@@ -56,6 +67,24 @@ class GladosConfigManager:
         self._yaml_data["glados"] = self.config.model_dump()
         with open(self.path, "w", encoding="utf-8") as f:
             self._yaml.dump(self._yaml_data, f)
+
+    def get_account_by_username(self, username: str) -> Optional[GladosAccount]:
+        """根据用户名获取账号配置"""
+        if self.config is None:
+            return None
+        for account in self.config.accounts:
+            if account.username == username:
+                return account
+        return None
+
+    def get_renewal_by_username(self, username: str) -> Optional[GladosRenewalConfig]:
+        """根据用户名获取续费配置"""
+        if self.config is None:
+            return None
+        for renewal in self.config.renewals:
+            if renewal.username == username:
+                return renewal
+        return None
 
     # ----------------------
     # dot-access

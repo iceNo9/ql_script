@@ -1,6 +1,8 @@
+# modules/glados/core/notify.py
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+from dataclasses import dataclass
 import random
 import yagmail
 from htmlmin import minify
@@ -8,16 +10,59 @@ from common.log import get_logger
 
 logger = get_logger(__name__)
 
+
+# ==================== Notify 专用 DTO ====================
+
+@dataclass
+class CheckinResult:
+    """签到结果（通知用）"""
+    username: str
+    success: bool
+    point: int
+    message: str
+
+
+@dataclass
+class CodeResult:
+    """礼品码兑换结果（通知用）"""
+    username: str
+    success: bool
+    days: int
+    message: str
+
+
+@dataclass
+class RedeemResult:
+    """蛋糕兑换结果（通知用）"""
+    username: str
+    success: bool
+    amount: int
+    message: str
+
+
+@dataclass
+class AccountInfo:
+    """账户信息（通知用）"""
+    username: str
+    points: int
+    left_days: int
+    current_traffic: int
+    total_traffic: int
+    use_percent: float
+
+
+# ==================== 通知器 ====================
+
 class GladosNotifier:
     def __init__(
         self,
         smtp_client: yagmail.SMTP,
         email_to: List[str],
         template_path: Path,
-        checkin_results: Optional[List] = None,
-        code_results: Optional[List] = None,
-        redeem_results: Optional[List] = None,
-        account_infos: Optional[List] = None,
+        checkin_results: Optional[List[CheckinResult]] = None,
+        code_results: Optional[List[CodeResult]] = None,
+        redeem_results: Optional[List[RedeemResult]] = None,
+        account_infos: Optional[List[AccountInfo]] = None,
     ):
         if not template_path.exists():
             raise FileNotFoundError(f"模板文件不存在: {template_path}")
@@ -41,8 +86,8 @@ class GladosNotifier:
             used_gb = acc.current_traffic / (1024**3)
             total_gb = acc.total_traffic / (1024**3)
             remaining_gb = total_gb - used_gb
-            use_percent = acc.use_percent  # 可能是超过100的值
-            remaining_pct = max(0, 100 - use_percent)  # 限制最小为0
+            use_percent = acc.use_percent
+            remaining_pct = max(0, 100 - use_percent)
             
             # 确定使用率颜色
             if acc.use_percent < 50:
@@ -52,11 +97,11 @@ class GladosNotifier:
             elif acc.use_percent < 100:
                 usage_color = "#fd7e14"  # 橙色
             else:
-                usage_color = "#dc3545"  # 红色（包含超过100%的情况）
+                usage_color = "#dc3545"  # 红色
             
             rows.append(f'''
             <tr>
-                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{acc.id}</td>
+                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{acc.username}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{acc.points:,}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{acc.left_days}天</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center;">{used_gb:.1f}GB / {total_gb:.1f}GB</td>
@@ -113,7 +158,7 @@ class GladosNotifier:
             
             rows.append(f'''
             <tr>
-                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.id}</td>
+                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.username}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:{status_color}; font-weight:bold;">{status_icon}{'成功' if res.success else '失败'}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:#ffc107; font-weight:bold;">+{res.point}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.message or '完成签到'}</td>
@@ -164,7 +209,7 @@ class GladosNotifier:
             
             rows.append(f'''
             <tr>
-                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.id}</td>
+                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.username}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:{status_color}; font-weight:bold;">{status_icon}{'成功' if res.success else '失败'}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:#20c997; font-weight:bold;">+{res.days}天</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.message or '兑换完成'}</td>
@@ -215,7 +260,7 @@ class GladosNotifier:
             
             rows.append(f'''
             <tr>
-                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.id}</td>
+                <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.username}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:{status_color}; font-weight:bold;">{status_icon}{'成功' if res.success else '失败'}</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:center; color:#dc3545; font-weight:bold;">{res.amount}个</td>
                 <td style="border:1px solid #e0e0e0; padding:8px 10px; text-align:left;">{res.message or '兑换完成'}</td>
@@ -312,3 +357,14 @@ class GladosNotifier:
         except Exception as e:
             logger.error(f"[!] 邮件发送失败: {e}", exc_info=True)
             return False
+
+
+# ==================== 导出 ====================
+
+__all__ = [
+    'CheckinResult',
+    'CodeResult', 
+    'RedeemResult',
+    'AccountInfo',
+    'GladosNotifier',
+]
