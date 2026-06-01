@@ -1,0 +1,7 @@
+southplus:
+  accounts:
+    - username: user1
+      cookie: "_ga=xxx; eb9e6_winduser=xxx; cf_clearance=xxx"
+
+    - username: user2
+      cookie: "_ga=yyy; eb9e6_winduser=yyy; cf_clearance=yyy"

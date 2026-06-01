@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>南+ 自动任务报告</title>
+</head>
+
+<body style="font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#f6f8fa;margin:0;padding:20px;color:#333;">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:25px;border-radius:8px;margin-bottom:20px;">
+        <h1 style="margin:0;font-size:24px;">📊 南+ 自动任务报告</h1>
+        <div style="margin-top:10px;font-size:13px;">
+            时间：{{current_time}} ｜ ID：{{report_id}}
+        </div>
+    </div>
+
+    <!-- 账户信息 -->
+    {{account_section}}
+
+    <!-- 任务信息 -->
+    {{task_section}}
+
+    <!-- footer -->
+    <div style="text-align:center;margin-top:30px;color:#888;font-size:12px;">
+        <div>南+ 自动化系统生成</div>
+        <div style="margin-top:5px;">Report ID: {{report_id}}</div>
+    </div>
+
+</body>
+</html>
