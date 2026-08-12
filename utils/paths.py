@@ -58,6 +58,7 @@ class PathManager:
         possible_src = [
             self._root_dir / "src",
             self._root_dir / "app",
+            self._root_dir / "apps",
             self._root_dir / "project",
         ]
 
