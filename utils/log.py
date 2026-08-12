@@ -70,7 +70,7 @@ class Logger:
     def __init__(
         self,
         name: str = "default",
-        log_dir: str | None = "logs",
+        log_dir: str = "logs",
         log_level: int = logging.DEBUG,
         console_level: int = logging.INFO,
         file_level: int = logging.DEBUG,
@@ -117,7 +117,7 @@ class Logger:
             self._add_console_handler(console_level)
 
         # 添加文件处理器
-        if use_file and log_dir is not None:
+        if use_file:
             self._add_file_handler(file_level, max_bytes, backup_count)
 
         self._initialized = True
