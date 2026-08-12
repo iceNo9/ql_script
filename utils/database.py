@@ -1,208 +1,327 @@
 """
-database.py - 数据库操作基类
-提供统一的CRUD操作，各业务模块继承此类
-"""
-import sqlite3
-import json
-from typing import Dict, List, Optional, Any
-from contextlib import contextmanager
-from abc import ABC
+数据库模块
 
-from utils.config import DB_PATH
+负责：
+
+- 创建 SQLAlchemy Engine
+- 管理 PostgreSQL 数据库连接池
+- 提供数据库 Session
+- 提供统一的事务管理
+- 提供 SQLAlchemy Declarative Base
+- 提供数据库连接测试
+- 提供数据库资源关闭
+
+不负责：
+
+- 定义具体业务数据表
+- 定义应用 Model
+- 定义 Repository
+- 实现具体业务 CRUD
+
+数据库配置来源：
+
+    config/global.yaml
+
+例如：
+
+    database:
+      host: localhost
+      port: 5432
+      database: qinglong
+      username: postgres
+      password: password
+"""
+
+from collections.abc import Generator
+from contextlib import contextmanager
+from threading import Lock
+
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import URL
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+from utils.config import DatabaseConfig, load_global_config
 from utils.log import get_logger
 
+logger = get_logger("database")
 
-class BaseTable(ABC):
-    """数据库表基类，所有业务表继承此类"""
-    
-    # 子类必须定义的属性
-    __tablename__: str = None          # 表名
-    __table_schema__: str = None       # 建表SQL
-    __indexes__: List[str] = []        # 索引SQL列表
-    
-    def __init__(self):
-        """初始化"""
-        if not self.__tablename__:
-            raise ValueError(f"{self.__class__.__name__} 必须定义 __tablename__")
-        if not self.__table_schema__:
-            raise ValueError(f"{self.__class__.__name__} 必须定义 __table_schema__")
-        
-        self.logger = get_logger(f"{self.__tablename__}.db")
-        self._init_table()
-    
-    @contextmanager
-    def _get_connection(self):
-        """获取数据库连接（自动管理事务）"""
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            self.logger.error(f"数据库操作失败: {e}")
-            raise
-        finally:
-            conn.close()
-    
-    def _init_table(self):
-        """初始化表结构（幂等操作）"""
-        with self._get_connection() as conn:
-            # 创建表
-            conn.execute(self.__table_schema__)
-            
-            # 创建索引
-            for index_sql in self.__indexes__:
-                try:
-                    conn.execute(index_sql)
-                except sqlite3.OperationalError as e:
-                    # 索引可能已存在，忽略错误
-                    self.logger.debug(f"创建索引时忽略: {e}")
-            
-            self.logger.info(f"表 {self.__tablename__} 初始化完成")
-    
-    # ==================== 核心查询接口 ====================
-    
-    def get(self, username: str) -> Optional[Dict]:
+
+# ============================================================================
+# SQLAlchemy Base
+# ============================================================================
+
+
+class Base(DeclarativeBase):
+    """
+    所有应用数据库 Model 的基类。
+
+    应用自己的 Model 应该继承这个 Base。
+
+    例如：
+
+        class User(Base):
+            ...
+    """
+
+
+# ============================================================================
+# Database
+# ============================================================================
+
+
+class Database:
+    """
+    数据库管理器。
+
+    负责管理 SQLAlchemy Engine 和 Session 工厂。
+
+    注意：
+
+    Database 本身不需要作为单例使用。
+
+    SQLAlchemy Engine 本身包含连接池，因此整个应用通常只需要
+    一个 Engine。
+
+    Session 则应该按使用范围创建，不能在线程之间共享。
+    """
+
+    def __init__(
+        self,
+        config: DatabaseConfig | None = None,
+    ) -> None:
         """
-        根据用户名获取单条记录
-        返回: dict 或 None
-        """
-        with self._get_connection() as conn:
-            row = conn.execute(
-                f"SELECT * FROM {self.__tablename__} WHERE username = ?",
-                (username,)
-            ).fetchone()
-            if row:
-                return self._row_to_dict(row)
-            return None
-    
-    def get_all(self, order_by: str = None, limit: int = None) -> List[Dict]:
-        """
-        获取所有记录
-        order_by: 排序字段，如 "remaining_days DESC"
-        limit: 限制条数
-        """
-        with self._get_connection() as conn:
-            sql = f"SELECT * FROM {self.__tablename__}"
-            params = []
-            
-            if order_by:
-                sql += f" ORDER BY {order_by}"
-            if limit:
-                sql += " LIMIT ?"
-                params.append(limit)
-            
-            rows = conn.execute(sql, params).fetchall()
-            return [self._row_to_dict(row) for row in rows]
-    
-    # ==================== 数据操作接口 ====================
-    
-    def upsert(self, username: str, data: Dict) -> bool:
-        """
-        插入或更新记录（子类可重写）
-        
+        初始化数据库管理器。
+
         Args:
-            username: 用户名（主键）
-            data: 要更新的数据字典
-            
-        Returns:
-            bool: 操作是否成功
+            config:
+                PostgreSQL 配置。
+                如果不传，则从全局配置加载。
         """
-        with self._get_connection() as conn:
-            existing = self.get(username)
-            
-            if existing:
-                # 更新：只更新传入的非空字段
-                updates = []
-                params = []
-                
-                for key, value in data.items():
-                    if key != 'username' and value is not None:
-                        updates.append(f"{key} = ?")
-                        params.append(self._serialize(value))
-                
-                if updates:
-                    params.append(username)
-                    conn.execute(f"""
-                        UPDATE {self.__tablename__} 
-                        SET {', '.join(updates)}, updated_at = strftime('%s','now')
-                        WHERE username = ?
-                    """, params)
-                    self.logger.debug(f"更新用户: {username}")
-            else:
-                # 插入
-                columns = ['username'] + list(data.keys())
-                placeholders = ['?'] * len(columns)
-                values = [username] + [self._serialize(data.get(k)) for k in data.keys()]
-                
-                conn.execute(f"""
-                    INSERT INTO {self.__tablename__} 
-                    ({', '.join(columns)}, created_at, updated_at)
-                    VALUES ({', '.join(placeholders)}, strftime('%s','now'), strftime('%s','now'))
-                """, values)
-                self.logger.info(f"新增用户: {username}")
-            
-            return True
-    
-    def delete(self, username: str) -> bool:
-        """删除用户"""
-        with self._get_connection() as conn:
-            result = conn.execute(
-                f"DELETE FROM {self.__tablename__} WHERE username = ?",
-                (username,)
+        self.config = config or load_global_config().database
+
+        self._engine: Engine | None = None
+        self._session_factory: sessionmaker[Session] | None = None
+        self._lock = Lock()
+
+    # ------------------------------------------------------------------------
+    # Engine
+    # ------------------------------------------------------------------------
+
+    @property
+    def engine(self) -> Engine:
+        """
+        获取 SQLAlchemy Engine。
+
+        Engine 在第一次使用时创建，并在后续重复使用。
+        """
+        if self._engine is None:
+            with self._lock:
+                if self._engine is None:
+                    self._engine = self._create_engine()
+
+        return self._engine
+
+    def _create_engine(self) -> Engine:
+        """创建 SQLAlchemy Engine。"""
+
+        url = URL.create(
+            drivername="postgresql+psycopg",
+            username=self.config.username,
+            password=self.config.password,
+            host=self.config.host,
+            port=self.config.port,
+            database=self.config.database,
+        )
+
+        logger.debug(
+            "创建 PostgreSQL Engine: %s:%s/%s",
+            self.config.host,
+            self.config.port,
+            self.config.database,
+        )
+
+        return create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+        )
+
+    # ------------------------------------------------------------------------
+    # Session
+    # ------------------------------------------------------------------------
+
+    @property
+    def session_factory(self) -> sessionmaker[Session]:
+        """
+        获取 Session 工厂。
+
+        Session 工厂本身可以长期复用，
+        但每次调用 factory() 都会创建新的 Session。
+        """
+        if self._session_factory is None:
+            self._session_factory = sessionmaker(
+                bind=self.engine,
+                autoflush=False,
+                expire_on_commit=False,
             )
-            if result.rowcount > 0:
-                self.logger.info(f"删除用户: {username}")
-                return True
+
+        return self._session_factory
+
+    def get_session(self) -> Session:
+        """
+        创建一个新的数据库 Session。
+
+        调用方负责关闭 Session。
+
+        推荐：
+
+            with database.get_session() as session:
+                ...
+        """
+        return self.session_factory()
+
+    # ------------------------------------------------------------------------
+    # Transaction
+    # ------------------------------------------------------------------------
+
+    @contextmanager
+    def session(self) -> Generator[Session, None, None]:
+        """
+        获取带事务管理的 Session。
+
+        正常执行：
+
+            commit()
+
+        出现异常：
+
+            rollback()
+
+        最后：
+
+            close()
+
+        Example:
+
+            with database.session() as session:
+                user = User(...)
+                session.add(user)
+        """
+        session = self.get_session()
+
+        try:
+            yield session
+            session.commit()
+
+        except Exception:
+            session.rollback()
+            raise
+
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------------
+    # Connection
+    # ------------------------------------------------------------------------
+
+    def test_connection(self) -> bool:
+        """
+        测试 PostgreSQL 数据库连接。
+
+        Returns:
+            bool:
+                连接成功返回 True，否则返回 False。
+        """
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+
+            logger.debug("PostgreSQL 数据库连接成功")
+            return True
+
+        except Exception:
+            logger.exception("PostgreSQL 数据库连接失败")
             return False
-    
-    def exists(self, username: str) -> bool:
-        """检查用户是否存在"""
-        with self._get_connection() as conn:
-            row = conn.execute(
-                f"SELECT 1 FROM {self.__tablename__} WHERE username = ? LIMIT 1",
-                (username,)
-            ).fetchone()
-            return row is not None
-    
-    def count(self, where_clause: str = None, params: tuple = ()) -> int:
-        """统计记录数"""
-        with self._get_connection() as conn:
-            sql = f"SELECT COUNT(*) as cnt FROM {self.__tablename__}"
-            if where_clause:
-                sql += f" WHERE {where_clause}"
-            
-            row = conn.execute(sql, params).fetchone()
-            return row['cnt'] if row else 0
-    
-    # ==================== 辅助方法 ====================
-    
-    def _serialize(self, value: Any) -> Any:
-        """序列化复杂类型（如dict、list）为JSON字符串"""
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
-        return value
-    
-    def _deserialize(self, value: Any) -> Any:
-        """反序列化JSON字符串"""
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                return value
-        return value
-    
-    def _row_to_dict(self, row: sqlite3.Row) -> Dict:
-        """将数据库行转换为字典，自动反序列化JSON字段"""
-        result = dict(row)
-        for key, value in result.items():
-            result[key] = self._deserialize(value)
-        return result
+
+    # ------------------------------------------------------------------------
+    # Dispose
+    # ------------------------------------------------------------------------
+
+    def close(self) -> None:
+        """
+        关闭数据库连接池。
+        """
+        if self._engine is not None:
+            logger.debug("关闭 PostgreSQL 数据库连接池")
+
+            self._engine.dispose()
+
+            self._engine = None
+            self._session_factory = None
 
 
-# ==================== 导出 ====================
+# ============================================================================
+# 全局 Database
+# ============================================================================
+
+_database = Database()
+
+
+# ============================================================================
+# 快捷函数
+# ============================================================================
+
+
+def get_engine() -> Engine:
+    """
+    获取全局 SQLAlchemy Engine。
+    """
+    return _database.engine
+
+
+def get_session() -> Session:
+    """
+    创建一个新的数据库 Session。
+
+    调用方负责关闭 Session。
+    """
+    return _database.get_session()
+
+
+@contextmanager
+def session() -> Generator[Session, None, None]:
+    """
+    获取带事务管理的数据库 Session。
+
+    Example:
+
+        with session() as db:
+            ...
+    """
+    with _database.session() as db:
+        yield db
+
+
+def test_connection() -> bool:
+    """
+    测试数据库连接。
+    """
+    return _database.test_connection()
+
+
+def close() -> None:
+    """
+    关闭数据库连接池。
+    """
+    _database.close()
+
 
 __all__ = [
-    'BaseTable',
+    "Base",
+    "Database",
+    "close",
+    "get_engine",
+    "get_session",
+    "session",
+    "test_connection",
 ]
