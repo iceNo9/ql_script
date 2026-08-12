@@ -82,6 +82,7 @@ class DatabaseConfig:
 
     host: str = "localhost"
     port: int = 5432
+    database: str = ""
     username: str = ""
     password: str = ""
 
