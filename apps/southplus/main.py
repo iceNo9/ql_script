@@ -3,8 +3,8 @@
 from utils.log import get_logger
 from utils.config import GlobalConfigManager
 
-from modules.southplus.core.config import ConfigManager
-from modules.southplus.core.app import App
+from apps.southplus.core.config import ConfigManager
+from apps.southplus.core.app import App
 
 logger = get_logger(__name__)
 

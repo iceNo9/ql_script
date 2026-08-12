@@ -1,4 +1,4 @@
-from modules.hifiti.main import main
+from apps.hifiti.main import main
 
 if __name__ == "__main__":
     main()

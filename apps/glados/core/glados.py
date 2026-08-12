@@ -7,10 +7,10 @@ from pathlib import Path
 from utils.log import get_logger
 from utils.config import GlobalConfig
 
-from modules.glados.utils.request_client import RequestClient
-from modules.glados.core.email import EmailCodeExtractor
-from modules.glados.core.table import GladosUser, get, save, update_sign
-from modules.glados.core.notify import (
+from apps.glados.utils.request_client import RequestClient
+from apps.glados.core.email import EmailCodeExtractor
+from apps.glados.core.table import GladosUser, get, save, update_sign
+from apps.glados.core.notify import (
     CheckinResult,
     CodeResult,
     RedeemResult,
@@ -18,7 +18,7 @@ from modules.glados.core.notify import (
     GladosNotifier
 )
 
-from modules.glados.core.server import (
+from apps.glados.core.server import (
     GladosServer,
     GladosPointResult,
     GladosCheckinResult,
@@ -30,7 +30,7 @@ from modules.glados.core.server import (
 )
 
 # 导入配置 DTO
-from modules.glados.core.config import GladosConfigModel, GladosRenewalConfig
+from apps.glados.core.config import GladosConfigModel, GladosRenewalConfig
 
 logger = get_logger(__name__)
 

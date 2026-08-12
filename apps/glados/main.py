@@ -2,8 +2,8 @@
 from utils.log import get_logger
 from utils.config import GlobalConfigManager
 
-from modules.glados.core.config import GladosConfigManager
-from modules.glados.core.glados import GladosClient
+from apps.glados.core.config import GladosConfigManager
+from apps.glados.core.glados import GladosClient
 
 logger = get_logger(__name__)
 

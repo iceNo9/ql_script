@@ -9,8 +9,8 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from utils.log import get_logger
-from modules.ikuuu.utils.request_client import RequestClient
-from modules.ikuuu.utils.utils import traffic_to_bytes, format_bytes
+from apps.ikuuu.utils.request_client import RequestClient
+from apps.ikuuu.utils.utils import traffic_to_bytes, format_bytes
 
 logger = get_logger(__name__)
 

@@ -3,9 +3,9 @@ import datetime
 from utils.log import get_logger
 from utils.config import GlobalConfigManager, GlobalConfig
 
-from modules.ikuuu.core.config import IkuuuAccount, IkuuuConfigModel, IkuuuConfigManager
-from modules.ikuuu.core.ikuuu import IkuuuClient
-from modules.ikuuu.core.data import IkuuuDataManager, IkuuuDataConfig, IkuuuAccountData
+from apps.ikuuu.core.config import IkuuuAccount, IkuuuConfigModel, IkuuuConfigManager
+from apps.ikuuu.core.ikuuu import IkuuuClient
+from apps.ikuuu.core.data import IkuuuDataManager, IkuuuDataConfig, IkuuuAccountData
 
 logger = get_logger(__name__)
 

@@ -3,8 +3,8 @@
 from utils.log import get_logger
 from utils.config import GlobalConfigManager
 
-from modules.hifiti.core.config import ConfigManager
-from modules.hifiti.core.app import App
+from apps.hifiti.core.config import ConfigManager
+from apps.hifiti.core.app import App
 
 logger = get_logger(__name__)
 

@@ -3,8 +3,8 @@
 from utils.log import get_logger
 from utils.config import GlobalConfigManager
 
-from modules.baiyefee.core.config import ConfigManager
-from modules.baiyefee.core.app import App
+from apps.baiyefee.core.config import ConfigManager
+from apps.baiyefee.core.app import App
 
 logger = get_logger(__name__)
 

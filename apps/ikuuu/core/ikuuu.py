@@ -12,11 +12,11 @@ from datetime import datetime
 from typing import ParamSpec, Concatenate
 
 
-from modules.ikuuu.utils.request_client import RequestClient
-from modules.ikuuu.core.data import IkuuuAccountData as Account
-from modules.ikuuu.core.notify import IkuuuNotifier 
+from apps.ikuuu.utils.request_client import RequestClient
+from apps.ikuuu.core.data import IkuuuAccountData as Account
+from apps.ikuuu.core.notify import IkuuuNotifier 
 
-from modules.ikuuu.core.server import (
+from apps.ikuuu.core.server import (
     IkuuuServer, 
     IkuuuCheckinResult,
     IkuuuStatusResult,

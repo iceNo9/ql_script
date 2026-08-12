@@ -9,15 +9,15 @@ from utils.log import get_logger
 from utils.config import GlobalConfig
 
 from utils.request_client import RequestClient
-from modules.baiyefee.core.table import User, get_user, save_user
-from modules.baiyefee.core.notify import (
+from apps.baiyefee.core.table import User, get_user, save_user
+from apps.baiyefee.core.notify import (
     SignResult,
     AccountInfo,
     Notifier
 )
 
-from modules.baiyefee.core.server import Server
-from modules.baiyefee.core.parser import Parser
+from apps.baiyefee.core.server import Server
+from apps.baiyefee.core.parser import Parser
 
 logger = get_logger(__name__)
 

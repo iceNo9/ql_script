@@ -1,6 +1,6 @@
-from modules.ikuuu.core.server import IkuuuServer, IkuuuCheckinResult
-from modules.ikuuu.utils.request_client import RequestClient
-from modules.ikuuu.core.config import IkuuuConfigManager
+from apps.ikuuu.core.server import IkuuuServer, IkuuuCheckinResult
+from apps.ikuuu.utils.request_client import RequestClient
+from apps.ikuuu.core.config import IkuuuConfigManager
 
 
 

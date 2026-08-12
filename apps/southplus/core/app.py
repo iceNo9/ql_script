@@ -10,11 +10,11 @@ from utils.log import get_logger
 from utils.config import GlobalConfig
 from utils.request_client import RequestClient
 
-from modules.southplus.core.server import Server
-from modules.southplus.core.parser import Parser
-from modules.southplus.core.config import ConfigManager
+from apps.southplus.core.server import Server
+from apps.southplus.core.parser import Parser
+from apps.southplus.core.config import ConfigManager
 
-from modules.southplus.core.table import (
+from apps.southplus.core.table import (
     get_user,
     save_user,
     User,
@@ -22,7 +22,7 @@ from modules.southplus.core.table import (
     update_credit,
 )
 
-from modules.southplus.core.notify import (
+from apps.southplus.core.notify import (
     TaskResult,
     AccountInfo,
     Notifier

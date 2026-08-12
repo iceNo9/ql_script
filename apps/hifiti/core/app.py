@@ -9,15 +9,15 @@ from utils.log import get_logger
 from utils.config import GlobalConfig
 
 from utils.request_client import RequestClient
-from modules.hifiti.core.table import User, get_user, save_user, update_sign_info
-from modules.hifiti.core.notify import (
+from apps.hifiti.core.table import User, get_user, save_user, update_sign_info
+from apps.hifiti.core.notify import (
     SignResult,
     AccountInfo,
     Notifier
 )
 
-from modules.hifiti.core.server import Server
-from modules.hifiti.core.parser import Parser
+from apps.hifiti.core.server import Server
+from apps.hifiti.core.parser import Parser
 
 logger = get_logger(__name__)
 
