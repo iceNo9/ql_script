@@ -47,12 +47,13 @@ from ruamel.yaml import YAML
 
 from utils.log import get_logger
 from utils.paths import config as config_dir
+from utils.paths import logs
 
 # ============================================================================
 # 日志
 # ============================================================================
 
-logger = get_logger("config")
+logger = get_logger(name="global_config", log_dir=logs(), fmt_type="detailed")
 
 
 # ============================================================================

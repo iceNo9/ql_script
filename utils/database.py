@@ -42,8 +42,9 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from utils.config import DatabaseConfig, load_global_config
 from utils.log import get_logger
+from utils.paths import logs
 
-logger = get_logger("database")
+logger = get_logger(name="database", log_dir=logs(), fmt_type="detailed")
 
 
 # ============================================================================
