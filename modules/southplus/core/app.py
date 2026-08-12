@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 from typing import Callable, Any, Optional, List, Dict
 from functools import wraps
 
-from common.log import get_logger
-from common.global_config import GlobalConfig
-from common.request_client import RequestClient
+from utils.log import get_logger
+from utils.global_config import GlobalConfig
+from utils.request_client import RequestClient
 
 from modules.southplus.core.server import Server
 from modules.southplus.core.parser import Parser

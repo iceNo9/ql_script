@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
 from abc import ABC
 
-from common.global_config import DB_PATH
-from common.log import get_logger
+from utils.global_config import DB_PATH
+from utils.log import get_logger
 
 
 class BaseTable(ABC):

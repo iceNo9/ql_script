@@ -7,9 +7,9 @@ from pydantic import BaseModel
 import hashlib
 
 
-from common.log import get_logger
-from common.global_config import GlobalConfig, EmailConfig, IMAPConfig
-from common.request_client import RequestClient
+from utils.log import get_logger
+from utils.global_config import GlobalConfig, EmailConfig, IMAPConfig
+from utils.request_client import RequestClient
 
 logger = get_logger(__name__)
 

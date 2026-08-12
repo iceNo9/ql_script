@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import random
 import yagmail
 from htmlmin import minify
-from common.log import get_logger
+from utils.log import get_logger
 
 logger = get_logger(__name__)
 

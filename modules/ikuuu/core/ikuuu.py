@@ -6,8 +6,8 @@ from typing import Optional, Dict, List, Tuple, Any
 from pydantic import BaseModel
 from htmlmin import minify
 from pathlib import Path
-from common.log import get_logger
-from common.global_config import GlobalConfig, EmailConfig, IMAPConfig
+from utils.log import get_logger
+from utils.global_config import GlobalConfig, EmailConfig, IMAPConfig
 from datetime import datetime
 from typing import ParamSpec, Concatenate
 

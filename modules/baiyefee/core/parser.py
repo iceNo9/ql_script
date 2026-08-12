@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, List
 from bs4 import BeautifulSoup
 from email.utils import parsedate_to_datetime
 
-from common.log import get_logger
+from utils.log import get_logger
 
 logger = get_logger(__name__)
 

@@ -1,6 +1,6 @@
 # tasks/task_glados.py
-from common.log import get_logger
-from common.global_config import GlobalConfigManager
+from utils.log import get_logger
+from utils.global_config import GlobalConfigManager
 
 from modules.glados.core.config import GladosConfigManager
 from modules.glados.core.glados import GladosClient

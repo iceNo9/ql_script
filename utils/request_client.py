@@ -3,7 +3,7 @@
 import time
 import requests
 from typing import Optional, List, Dict, Any
-from common.log import get_logger
+from utils.log import get_logger
 
 logger = get_logger(__name__)
 

@@ -9,8 +9,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from common.database import BaseTable
-from common.log import get_logger
+from utils.database import BaseTable
+from utils.log import get_logger
 
 logger = get_logger(__name__)
 

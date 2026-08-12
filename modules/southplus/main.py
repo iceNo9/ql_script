@@ -1,7 +1,7 @@
 # modules/southplus/main.py
 
-from common.log import get_logger
-from common.global_config import GlobalConfigManager
+from utils.log import get_logger
+from utils.global_config import GlobalConfigManager
 
 from modules.southplus.core.config import ConfigManager
 from modules.southplus.core.app import App

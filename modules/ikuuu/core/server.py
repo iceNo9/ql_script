@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-from common.log import get_logger
+from utils.log import get_logger
 from modules.ikuuu.utils.request_client import RequestClient
 from modules.ikuuu.utils.utils import traffic_to_bytes, format_bytes
 

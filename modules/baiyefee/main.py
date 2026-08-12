@@ -1,7 +1,7 @@
 # modules/baiyefee/main.py
 
-from common.log import get_logger
-from common.global_config import GlobalConfigManager
+from utils.log import get_logger
+from utils.global_config import GlobalConfigManager
 
 from modules.baiyefee.core.config import ConfigManager
 from modules.baiyefee.core.app import App

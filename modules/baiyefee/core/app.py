@@ -5,10 +5,10 @@ from functools import wraps
 from typing import Callable, Any, Optional, List, Dict
 from pathlib import Path
 
-from common.log import get_logger
-from common.global_config import GlobalConfig
+from utils.log import get_logger
+from utils.global_config import GlobalConfig
 
-from common.request_client import RequestClient
+from utils.request_client import RequestClient
 from modules.baiyefee.core.table import User, get_user, save_user
 from modules.baiyefee.core.notify import (
     SignResult,

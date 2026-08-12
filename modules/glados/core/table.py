@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
-from common.database import BaseTable
+from utils.database import BaseTable
 
 
 # ==================== 数据库 DTO ====================
