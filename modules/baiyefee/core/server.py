@@ -8,7 +8,7 @@ import hashlib
 
 
 from utils.log import get_logger
-from utils.global_config import GlobalConfig, EmailConfig, IMAPConfig
+from utils.config import GlobalConfig, EmailConfig, IMAPConfig
 from utils.request_client import RequestClient
 
 logger = get_logger(__name__)

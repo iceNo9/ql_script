@@ -7,7 +7,7 @@ from typing import Callable, Any, Optional, List, Dict
 from functools import wraps
 
 from utils.log import get_logger
-from utils.global_config import GlobalConfig
+from utils.config import GlobalConfig
 from utils.request_client import RequestClient
 
 from modules.southplus.core.server import Server

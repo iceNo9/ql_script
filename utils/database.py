@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
 from abc import ABC
 
-from utils.global_config import DB_PATH
+from utils.config import DB_PATH
 from utils.log import get_logger
 
 

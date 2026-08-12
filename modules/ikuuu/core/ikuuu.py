@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from htmlmin import minify
 from pathlib import Path
 from utils.log import get_logger
-from utils.global_config import GlobalConfig, EmailConfig, IMAPConfig
+from utils.config import GlobalConfig, EmailConfig, IMAPConfig
 from datetime import datetime
 from typing import ParamSpec, Concatenate
 

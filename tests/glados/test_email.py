@@ -1,5 +1,5 @@
 # test_email.py
-from utils.global_config import EmailConfig, GlobalConfigManager
+from utils.config import EmailConfig, GlobalConfigManager
 from utils.log import get_logger
 
 from modules.glados.core.email import EmailCodeExtractor, MailSummary, MailDetail

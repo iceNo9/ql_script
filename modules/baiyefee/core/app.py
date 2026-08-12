@@ -6,7 +6,7 @@ from typing import Callable, Any, Optional, List, Dict
 from pathlib import Path
 
 from utils.log import get_logger
-from utils.global_config import GlobalConfig
+from utils.config import GlobalConfig
 
 from utils.request_client import RequestClient
 from modules.baiyefee.core.table import User, get_user, save_user

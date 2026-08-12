@@ -5,7 +5,7 @@ from typing import Callable, TypeVar, Any, Optional, List, Dict
 from pathlib import Path
 
 from utils.log import get_logger
-from utils.global_config import GlobalConfig
+from utils.config import GlobalConfig
 
 from modules.glados.utils.request_client import RequestClient
 from modules.glados.core.email import EmailCodeExtractor

@@ -13,7 +13,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
 from utils.log import get_logger
-from utils.global_config import EmailConfig
+from utils.config import EmailConfig
 
 logger = get_logger(__name__)
 

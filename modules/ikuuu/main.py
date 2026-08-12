@@ -1,7 +1,7 @@
 import datetime
 
 from utils.log import get_logger
-from utils.global_config import GlobalConfigManager, GlobalConfig
+from utils.config import GlobalConfigManager, GlobalConfig
 
 from modules.ikuuu.core.config import IkuuuAccount, IkuuuConfigModel, IkuuuConfigManager
 from modules.ikuuu.core.ikuuu import IkuuuClient
