@@ -243,8 +243,16 @@ def get_logger(name: str = "app", **kwargs) -> Logger:
     获取指定名称的日志记录器
 
     Args:
-        name: 日志记录器名称（模块名）
-        **kwargs: 传递给 Logger 的其他参数
+        name: 日志记录器名称（模块名），建议使用 __name__
+        log_dir: 日志根目录，默认 "logs"
+        log_level: 全局日志级别，默认 DEBUG 10
+        console_level: 控制台输出级别，默认 INFO 20
+        file_level: 文件输出级别，默认 DEBUG 10
+        fmt_type: 日志格式类型，可选: "default", "detailed", "simple", "minimal"
+        use_file: 是否启用文件日志，默认 True
+        use_console: 是否启用控制台日志，默认 True
+        max_bytes: 单个日志文件最大字节数，默认 10MB
+        backup_count: 保留的日志文件备份数量，默认 5
 
     Returns:
         Logger 实例
