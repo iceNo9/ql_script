@@ -1,17 +1,23 @@
-# common\request_client.py
+# common/request_client.py
 
 import time
+from urllib.parse import urlparse
 
 import requests
+from requests.utils import should_bypass_proxies
 
 from utils.log import get_logger
 from utils.paths import logs
 
-logger = get_logger(name="request_client", log_dir=logs(), fmt_type="detailed")
+logger = get_logger(
+    name="request_client",
+    log_dir=logs(),
+    fmt_type="detailed",
+)
 
 
 class RequestClient:
-    """封装请求客户端，支持代理列表与重试"""
+    """封装 HTTP 请求客户端，支持代理、NO_PROXY 与重试。"""
 
     # 固定的设备指纹（方案一：最安全的做法）
     # 这些是模拟浏览器身份的核心字段，在一个会话中固定不变
@@ -36,119 +42,256 @@ class RequestClient:
     # - Cookie: 会话管理，session 自动处理
     # - 伪标头 (:method, :path, :authority, :scheme): 由 HTTP 库自动生成
 
-    def __init__(self, proxies: list[str] | None = None, max_retries: int = 3):
+    def __init__(
+        self,
+        http_proxies: list[str] | None = None,
+        https_proxies: list[str] | None = None,
+        no_proxy: list[str] | None = None,
+        max_retries: int = 3,
+    ):
         """
-        初始化请求客户端
+        初始化请求客户端。
 
         Args:
-            proxies: 初始化代理列表，例如 ["http://127.0.0.1:7890", ...]
-            max_retries: 最大重试次数
+            http_proxies:
+                HTTP 请求使用的代理列表。
+
+            https_proxies:
+                HTTPS 请求使用的代理列表。
+
+            no_proxy:
+                不使用代理的地址列表。
+
+            max_retries:
+                每个代理的最大重试次数。
         """
-        self.proxies_list = proxies or []
+        self.http_proxies = http_proxies or []
+        self.https_proxies = https_proxies or []
+        self.no_proxy = no_proxy or []
         self.max_retries = max_retries
+
         self.session = requests.Session()
 
-        # 应用固定的基础头
+        # 应用固定的基础请求头
         self.session.headers.update(self._BASE_HEADERS.copy())
 
-        # 额外存储用户自定义的固定头（不会在请求间丢失）
+        # 用户自定义的会话级请求头
         self._custom_headers: dict[str, str] = {}
 
         logger.debug(
-            f"[*] RequestClient 初始化完成，基础头: {list(self.session.headers.keys())}"
+            "RequestClient 初始化完成，基础头: %s",
+            list(self.session.headers.keys()),
         )
 
-    # ==================== Header 管理方法 ====================
+    # ========================================================================
+    # Proxy
+    # ========================================================================
 
-    def set_headers(self, headers: dict[str, str], merge: bool = True):
+    def _should_bypass_proxy(self, url: str) -> bool:
+        """判断当前 URL 是否应该绕过代理。"""
+
+        if not self.no_proxy:
+            return False
+
+        no_proxy = ",".join(self.no_proxy)
+
+        try:
+            return should_bypass_proxies(
+                url,
+                no_proxy=no_proxy,
+            )
+        except ValueError:
+            logger.warning(
+                "NO_PROXY 配置无效，URL: %s，NO_PROXY: %s",
+                url,
+                no_proxy,
+            )
+            return False
+
+    def _get_proxy_list(
+        self,
+        url: str,
+        proxy_url: str | None = None,
+    ) -> list[str | None]:
         """
-        设置会话级别的固定请求头（会持久化到整个会话）
+        获取当前请求的代理尝试列表。
+
+        尝试顺序：
+
+        1. 指定的临时代理
+        2. 当前协议对应的代理列表
+        3. 直连
+
+        如果 URL 命中 NO_PROXY，则直接直连。
 
         Args:
-            headers: 要设置的请求头字典
-            merge: True=合并到现有头，False=完全替换现有头
+            url:
+                请求 URL。
+
+            proxy_url:
+                临时指定的代理。
+
+        Returns:
+            代理列表。
+            None 表示直连。
         """
+
+        # 临时代理拥有最高优先级。
+        if proxy_url:
+            return [proxy_url, None]
+
+        # NO_PROXY 命中，直接连接。
+        if self._should_bypass_proxy(url):
+            return [None]
+
+        scheme = urlparse(url).scheme.lower()
+
+        if scheme == "https":
+            proxies = self.https_proxies
+        elif scheme == "http":
+            proxies = self.http_proxies
+        else:
+            logger.warning(
+                "不支持的 URL 协议: %s，使用直连: %s",
+                scheme,
+                url,
+            )
+            return [None]
+
+        # 代理全部失败后最终尝试直连。
+        return [*proxies, None]
+
+    @staticmethod
+    def _build_proxy_dict(proxy: str | None) -> dict[str, str] | None:
+        """
+        将单个代理地址转换为 requests proxies 格式。
+
+        Args:
+            proxy:
+                代理地址。
+
+        Returns:
+            requests proxies 字典。
+        """
+
+        if not proxy:
+            return None
+
+        return {
+            "http": proxy,
+            "https": proxy,
+        }
+
+    # ========================================================================
+    # Header 管理
+    # ========================================================================
+
+    def set_headers(
+        self,
+        headers: dict[str, str],
+        merge: bool = True,
+    ) -> None:
+        """
+        设置会话级别的固定请求头。
+
+        Args:
+            headers:
+                要设置的请求头。
+
+            merge:
+                True:
+                    合并到现有请求头。
+
+                False:
+                    清除当前自定义请求头后重新设置。
+        """
+
         if merge:
             self.session.headers.update(headers)
             self._custom_headers.update(headers)
+
         else:
-            # 完全替换：先清除所有非基础的，再设置新的
             self.session.headers.clear()
             self.session.headers.update(self._BASE_HEADERS.copy())
             self.session.headers.update(headers)
             self._custom_headers = headers.copy()
 
         logger.debug(
-            f"[*] 会话级请求头已更新，当前: {list(self.session.headers.keys())}"
+            "会话级请求头已更新，当前: %s",
+            list(self.session.headers.keys()),
         )
 
-    def update_headers(self, headers: dict[str, str]):
+    def update_headers(
+        self,
+        headers: dict[str, str],
+    ) -> None:
         """
-        更新会话级别的请求头（等价于 set_headers(..., merge=True) 的快捷方式）
+        更新会话级别的请求头。
 
-        Args:
-            headers: 要更新的请求头字典
+        等价于：
+
+            set_headers(headers, merge=True)
         """
         self.set_headers(headers, merge=True)
 
     def get_headers(self) -> dict[str, str]:
-        """获取当前会话的所有请求头"""
+        """获取当前会话的所有请求头。"""
         return dict(self.session.headers)
 
-    def remove_headers(self, keys: list[str]):
-        """
-        移除指定的请求头
+    def remove_headers(self, keys: list[str]) -> None:
+        """移除指定的请求头。"""
 
-        Args:
-            keys: 要移除的请求头名称列表
-        """
         for key in keys:
             if key in self.session.headers:
                 del self.session.headers[key]
+
             if key in self._custom_headers:
                 del self._custom_headers[key]
-        logger.debug(f"[*] 已移除请求头: {keys}")
 
-    def reset_headers(self):
-        """
-        重置请求头到初始状态（只保留基础设备指纹）
-        """
+        logger.debug(
+            "已移除请求头: %s",
+            keys,
+        )
+
+    def reset_headers(self) -> None:
+        """重置请求头到初始状态，只保留基础设备指纹。"""
+
         self.session.headers.clear()
         self.session.headers.update(self._BASE_HEADERS.copy())
         self._custom_headers.clear()
-        logger.debug("[*] 请求头已重置为基础配置")
 
-    # ==================== 单次请求级别的 Header 设置 ====================
+        logger.debug("请求头已重置为基础配置")
+
+    # ========================================================================
+    # 单次请求 Header
+    # ========================================================================
 
     def _build_request_headers(
-        self, extra_headers: dict[str, str] | None = None
+        self,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """
-        构建单次请求的完整请求头
+        构建单次请求的完整请求头。
 
         Args:
-            extra_headers: 单次请求额外添加的头（优先级最高）
+            extra_headers:
+                单次请求额外的请求头。
+                优先级高于会话级请求头。
 
         Returns:
-            完整的请求头字典
+            完整请求头。
         """
-        # 基础头已在 session.headers 中
+
         headers = dict(self.session.headers)
 
-        # 单次请求的额外头覆盖
         if extra_headers:
             headers.update(extra_headers)
 
         return headers
 
-    # ==================== 核心请求方法 ====================
-
-    def _get_proxies(self, proxy_url: str | None = None) -> dict[str, str] | None:
-        """根据传入的proxy_url或初始化代理列表返回代理字典"""
-        proxy = proxy_url or (self.proxies_list[0] if self.proxies_list else None)
-        if proxy:
-            return {"http": proxy, "https": proxy}
-        return None
+    # ========================================================================
+    # 核心请求
+    # ========================================================================
 
     def request(
         self,
@@ -159,85 +302,162 @@ class RequestClient:
         **kwargs,
     ) -> requests.Response:
         """
-        发送请求，优先使用代理
+        发送 HTTP 请求。
+
+        代理尝试顺序：
+
+        1. proxy_url 指定的临时代理
+        2. 当前协议配置的代理列表
+        3. 直连
+
+        如果 URL 命中 NO_PROXY，则跳过所有代理直接连接。
 
         Args:
-            method: HTTP方法
-            url: 请求URL
-            proxy_url: 临时使用的代理地址
-            extra_headers: 单次请求额外添加的请求头（不会持久化到会话）
-            **kwargs: requests参数
+            method:
+                HTTP 方法。
+
+            url:
+                请求 URL。
+
+            proxy_url:
+                临时使用的代理地址。
+
+            extra_headers:
+                单次请求额外的请求头，不会持久化。
+
+            **kwargs:
+                requests.Session.request 参数。
+
+        Returns:
+            requests.Response
+
+        Raises:
+            requests.RequestException:
+                所有请求最终失败，并且存在 requests 异常。
+
+            RuntimeError:
+                所有请求失败，但没有捕获到 requests 异常。
         """
-        last_exception = None
-        proxies_to_try = []
 
-        # 构建尝试顺序
-        if proxy_url:
-            proxies_to_try.append(proxy_url)
-        elif self.proxies_list:
-            proxies_to_try.extend(self.proxies_list)
-        proxies_to_try.append(None)  # 最后尝试直连
+        last_exception: requests.RequestException | None = None
 
-        # 构建请求头（合并单次请求的额外头）
-        final_headers = self._build_request_headers(extra_headers)
+        proxies_to_try = self._get_proxy_list(
+            url,
+            proxy_url=proxy_url,
+        )
 
-        response = None
+        final_headers = self._build_request_headers(
+            extra_headers,
+        )
+
+        # 不修改调用者传入的 kwargs。
+        request_kwargs = kwargs.copy()
+
+        request_kwargs.setdefault("timeout", 30)
+
+        response: requests.Response | None = None
+
         for proxy in proxies_to_try:
             method_name = f"代理({proxy})" if proxy else "直连"
-            for attempt in range(self.max_retries):
+
+            proxies_dict = self._build_proxy_dict(proxy)
+
+            for attempt in range(1, self.max_retries + 1):
                 try:
-                    proxies_dict = self._get_proxies(proxy)
-                    if "timeout" not in kwargs:
-                        kwargs["timeout"] = 30
+                    logger.debug(
+                        "尝试 %s 请求 %s " "(尝试 %d/%d)",
+                        method_name,
+                        url,
+                        attempt,
+                        self.max_retries,
+                    )
 
                     logger.debug(
-                        f"[*] 尝试 {method_name} 请求 {url} (尝试 {attempt+1}/{self.max_retries})"
+                        "请求头: %s",
+                        final_headers,
                     )
-                    logger.debug(f"[*] 请求头: {final_headers}")
 
                     response = self.session.request(
                         method=method,
                         url=url,
                         proxies=proxies_dict,
-                        headers=final_headers,  # 使用合并后的头
-                        **kwargs,
+                        headers=final_headers,
+                        **request_kwargs,
                     )
 
                     logger.debug(
-                        f"[*] {method_name} 请求 {url} - 状态码: {response.status_code}"
+                        "%s 请求 %s - 状态码: %s",
+                        method_name,
+                        url,
+                        response.status_code,
                     )
 
+                    # 2xx / 3xx / 4xx 都认为请求本身成功。
+                    # 只有 5xx 才进入重试。
                     if response.status_code < 500:
-                        logger.info(f"[+] {method_name} 请求成功: {url}")
+                        logger.info(
+                            "%s 请求成功: %s",
+                            method_name,
+                            url,
+                        )
                         return response
 
                     logger.warning(
-                        f"[!] {method_name} 请求失败: {url} - 状态码: {response.status_code}"
+                        "%s 请求失败: %s - 状态码: %s",
+                        method_name,
+                        url,
+                        response.status_code,
                     )
 
-                except (requests.ConnectionError, requests.Timeout) as e:
-                    last_exception = e
+                except (
+                    requests.ConnectionError,
+                    requests.Timeout,
+                ) as exc:
+                    last_exception = exc
+
                     logger.warning(
-                        f"[!] {method_name} 网络异常 (尝试 {attempt+1}/{self.max_retries}): {e}"
+                        "%s 网络异常 " "(尝试 %d/%d): %s",
+                        method_name,
+                        attempt,
+                        self.max_retries,
+                        exc,
                     )
-                    if attempt < self.max_retries - 1:
+
+                    if attempt < self.max_retries:
                         time.sleep(1)
-                    continue
-                except requests.RequestException as e:
-                    last_exception = e
-                    logger.error(f"[!] {method_name} 请求异常: {e}")
+
+                except requests.RequestException as exc:
+                    last_exception = exc
+
+                    logger.error(
+                        "%s 请求异常: %s",
+                        method_name,
+                        exc,
+                    )
+
+                    # 其他 RequestException 不再对当前代理重试，
+                    # 直接切换下一个代理。
                     break
 
-        # 循环结束后，如果 response 不存在或所有尝试失败，抛异常
-        if response is not None and response.status_code < 500:
-            return response
+        # 理论上只有 5xx 响应才会走到这里。
+        if response is not None:
+            if response.status_code < 500:
+                return response
+
+            logger.error(
+                "所有请求方式均返回服务器错误: %s - 状态码: %s",
+                url,
+                response.status_code,
+            )
 
         if last_exception:
             raise last_exception
 
         raise RuntimeError(f"所有请求方式失败: {url}")
 
-    # ==================== GET / POST 快捷方法 ====================
+    # ========================================================================
+    # GET / POST
+    # ========================================================================
 
     def get(
         self,
@@ -246,9 +466,14 @@ class RequestClient:
         extra_headers: dict[str, str] | None = None,
         **kwargs,
     ) -> requests.Response:
-        """GET 请求"""
+        """发送 GET 请求。"""
+
         return self.request(
-            "GET", url, proxy_url=proxy_url, extra_headers=extra_headers, **kwargs
+            "GET",
+            url,
+            proxy_url=proxy_url,
+            extra_headers=extra_headers,
+            **kwargs,
         )
 
     def post(
@@ -258,71 +483,95 @@ class RequestClient:
         extra_headers: dict[str, str] | None = None,
         **kwargs,
     ) -> requests.Response:
-        """POST 请求"""
+        """发送 POST 请求。"""
+
         return self.request(
-            "POST", url, proxy_url=proxy_url, extra_headers=extra_headers, **kwargs
+            "POST",
+            url,
+            proxy_url=proxy_url,
+            extra_headers=extra_headers,
+            **kwargs,
         )
 
-    # ==================== Cookies 操作 ====================
+    # ========================================================================
+    # Cookies
+    # ========================================================================
 
-    def set_cookies(self, cookies: dict[str, str]):
-        """设置会话级 Cookie"""
+    def set_cookies(
+        self,
+        cookies: dict[str, str],
+    ) -> None:
+        """设置会话级 Cookie。"""
+
         self.session.cookies.clear()
-        for k, v in cookies.items():
-            self.session.cookies.set(k, v)
+
+        for key, value in cookies.items():
+            self.session.cookies.set(key, value)
 
     def get_cookies_dict(self) -> dict[str, str]:
-        """获取当前 Cookie 字典"""
+        """获取当前 Cookie 字典。"""
+
         return requests.utils.dict_from_cookiejar(self.session.cookies)
 
-    def clear_cookies(self):
-        """清空 Cookie"""
+    def clear_cookies(self) -> None:
+        """清空 Cookie。"""
+
         self.session.cookies.clear()
 
-    # ==================== 便捷方法：特定场景的 Header 预设 ====================
+    # ========================================================================
+    # Header 预设
+    # ========================================================================
 
-    def set_html_mode(self):
-        """
-        设置为请求 HTML 页面的模式
-        自动设置合适的 Accept 头
-        """
+    def set_html_mode(self) -> None:
+        """设置为 HTML 请求模式。"""
+
         self.update_headers(
             {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept": (
+                    "text/html,application/xhtml+xml,"
+                    "application/xml;q=0.9,image/avif,"
+                    "image/webp,image/apng,*/*;q=0.8"
+                ),
                 "Upgrade-Insecure-Requests": "1",
             }
         )
-        logger.info("[*] 已切换到 HTML 请求模式")
 
-    def set_json_mode(self):
-        """
-        设置为请求 JSON API 的模式
-        自动设置合适的 Accept 头
-        """
+        logger.info("已切换到 HTML 请求模式")
+
+    def set_json_mode(self) -> None:
+        """设置为 JSON API 请求模式。"""
+
         self.update_headers(
             {
                 "Accept": "application/json, text/plain, */*",
             }
         )
-        # 如果有 Upgrade-Insecure-Requests 则移除（JSON 模式不需要）
+
         if "Upgrade-Insecure-Requests" in self.session.headers:
             del self.session.headers["Upgrade-Insecure-Requests"]
-        logger.info("[*] 已切换到 JSON API 请求模式")
 
-    def set_referer(self, referer: str):
-        """
-        设置 Referer 头（会话级，后续所有请求都会带）
+        logger.info("已切换到 JSON API 请求模式")
 
-        Args:
-            referer: 来源 URL
-        """
-        self.update_headers({"Referer": referer})
+    def set_referer(
+        self,
+        referer: str,
+    ) -> None:
+        """设置会话级 Referer。"""
 
-    def set_origin(self, origin: str):
-        """
-        设置 Origin 头（会话级）
+        self.update_headers(
+            {
+                "Referer": referer,
+            }
+        )
 
-        Args:
-            origin: 源站 URL
-        """
-        self.update_headers({"Origin": origin})
+    def set_origin(
+        self,
+        origin: str,
+    ) -> None:
+        """设置会话级 Origin。"""
+
+        self.update_headers(
+            {
+                "Origin": origin,
+            }
+        )

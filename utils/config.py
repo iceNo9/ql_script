@@ -1,5 +1,5 @@
 """
-配置文件加载模块
+配置文件加载模块。
 
 负责：
 
@@ -9,6 +9,7 @@
 - 使用 utils.log 记录配置加载过程
 - 定义全局配置 Model
 - 提供统一的 YAML 配置加载接口
+- 提供统一的 YAML 配置保存接口
 - 提供全局配置加载接口
 
 不负责：
@@ -44,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 
 from utils.log import get_logger
 from utils.paths import config as config_dir
@@ -60,7 +62,18 @@ logger = get_logger(name="global_config", log_dir=logs(), fmt_type="detailed")
 # YAML
 # ============================================================================
 
+# 用于读取。
+# safe 模式只获取配置数据，不保留 YAML 注释、格式等信息。
 _yaml = YAML(typ="safe")
+
+# 用于写入。
+#
+# 使用默认的 round-trip 模式，可以正确处理 CommentedMap，
+# 从而支持保存 YAML 注释。
+_yaml_writer = YAML()
+
+_yaml_writer.default_flow_style = False
+_yaml_writer.allow_unicode = True
 
 
 # ============================================================================
@@ -73,8 +86,9 @@ class ProxyConfig:
     """全局代理配置。"""
 
     enabled: bool = False
-    http: str | None = None
-    https: str | None = None
+    http: list[str] = field(default_factory=list)
+    https: list[str] = field(default_factory=list)
+    no_proxy: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -120,7 +134,8 @@ def get_config_path(name: str) -> Path:
                 app_a
 
     Returns:
-        配置文件完整路径。
+        Path:
+            配置文件完整路径。
 
     Examples:
         >>> get_config_path("global")
@@ -159,7 +174,7 @@ def load_config(name: str) -> dict[str, Any]:
         dict[str, Any]:
             配置数据。
 
-        如果 YAML 文件为空，则返回空字典。
+            如果 YAML 文件为空，则返回空字典。
 
     Raises:
         FileNotFoundError:
@@ -203,6 +218,71 @@ def load_config(name: str) -> dict[str, Any]:
     logger.debug("配置文件加载成功: %s", path)
 
     return dict(data)
+
+
+# ============================================================================
+# 配置保存
+# ============================================================================
+
+
+def save_config(
+    name: str,
+    data: dict[str, Any] | CommentedMap,
+) -> None:
+    """
+    保存指定 YAML 配置文件。
+
+    支持普通 dict 和 ruamel.yaml 的 CommentedMap。
+
+    使用 CommentedMap 时，可以保留并写入 YAML 注释。
+
+    Args:
+        name:
+            配置文件名称，不需要包含 .yaml 后缀。
+
+        data:
+            要保存的配置数据。
+
+            可以使用普通 dict：
+
+                {
+                    "name": "example",
+                }
+
+            也可以使用 CommentedMap 创建带注释的 YAML：
+
+                data = CommentedMap()
+                data["name"] = "example"
+                data.yaml_set_comment_before_after_key(
+                    "name",
+                    before="名称",
+                )
+
+    Raises:
+        TypeError:
+            配置数据不是字典或 CommentedMap。
+
+        Exception:
+            YAML 写入失败或文件操作失败。
+    """
+    if not isinstance(data, (dict, CommentedMap)):
+        raise TypeError("配置数据必须是 dict 或 CommentedMap")
+
+    path = get_config_path(name)
+
+    logger.debug("保存配置文件: %s", path)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with path.open("w", encoding="utf-8") as file:
+            _yaml_writer.dump(data, file)
+
+    except Exception:
+        logger.exception("保存配置文件失败: %s", path)
+        raise
+
+    logger.debug("配置文件保存成功: %s", path)
 
 
 # ============================================================================
@@ -289,4 +369,5 @@ __all__ = [
     "get_config_path",
     "load_config",
     "load_global_config",
+    "save_config",
 ]

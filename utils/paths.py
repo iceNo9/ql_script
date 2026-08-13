@@ -104,6 +104,11 @@ class PathManager:
         """临时目录"""
         return self._root_dir / "temp"
 
+    @property
+    def env(self) -> Path:
+        """环境变量配置目录"""
+        return self._root_dir / "env"
+
     def get_path(self, *paths: str | Path) -> Path:
         """
         获取相对于项目根目录的路径
@@ -232,6 +237,11 @@ def temp() -> Path:
     return _paths.temp
 
 
+def env() -> Path:
+    """获取环境变量配置目录"""
+    return _paths.env
+
+
 def get_path(*paths: str | Path) -> Path:
     """获取相对于项目根目录的路径"""
     return _paths.get_path(*paths)
@@ -264,6 +274,7 @@ __all__ = [
     "data",
     "ensure_dir",
     "ensure_dirs",
+    "env",
     "get_path",
     "get_relative_path",
     "is_in_project",
