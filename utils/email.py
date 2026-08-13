@@ -21,12 +21,6 @@ logger = get_logger(
 )
 
 
-class EmailProvider(StrEnum):
-    """邮箱服务商。"""
-
-    QQ = "qq"
-
-
 @dataclass(frozen=True)
 class IMAPConfig:
     """IMAP 服务配置。"""
@@ -36,9 +30,27 @@ class IMAPConfig:
     ssl: bool
 
 
+class EmailProvider(StrEnum):
+    """邮箱服务商。"""
+
+    QQ = "qq"
+    NETEASE_163 = "163"
+    NETEASE_126 = "126"
+
+
 IMAP_CONFIGS: dict[EmailProvider, IMAPConfig] = {
     EmailProvider.QQ: IMAPConfig(
         host="imap.qq.com",
+        port=993,
+        ssl=True,
+    ),
+    EmailProvider.NETEASE_163: IMAPConfig(
+        host="imap.163.com",
+        port=993,
+        ssl=True,
+    ),
+    EmailProvider.NETEASE_126: IMAPConfig(
+        host="imap.126.com",
         port=993,
         ssl=True,
     ),
