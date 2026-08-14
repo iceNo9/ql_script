@@ -89,6 +89,15 @@ class GladosLoginResult(GladosBaseResult):
     cookies: dict[str, str] | None = None
 
     @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GladosLoginResult:
+        """从字典解析登录结果。
+        
+        注意：登录的 Cookie 来自 Response 对象，不是来自 JSON body。
+        此方法仅用于满足抽象基类要求，实际不会被调用。
+        """
+        # 满足抽象方法要求，实际不会被调用
+
+    @classmethod
     def from_response(cls, response: requests.Response) -> GladosLoginResult:
         """从登录 Response 中解析 Cookie。"""
 

@@ -79,7 +79,7 @@ def authenticated(func: Callable[..., T]) -> Callable[..., T]:
 
                 logger.warning(
                     "账号 %s 当前认证方式失败，尝试下一层认证",
-                    account.email_user,
+                    account.username,
                 )
 
         if last_error is not None:
@@ -188,7 +188,7 @@ class GladosClient:
         """
 
         db_account = self.account_repository.get_by_email(
-            account.email_user,
+            account.username,
         )
 
         if db_account is not None:
@@ -196,11 +196,11 @@ class GladosClient:
 
         logger.info(
             "数据库中不存在 GLaDOS 账号，创建账号: username=%s",
-            account.email_user,
+            account.username,
         )
 
         return self.account_repository.create(
-            email=account.email_user,
+            email=account.username,
         )
 
     # ====================================================================
@@ -240,7 +240,7 @@ class GladosClient:
         Repository 负责解密。
         """
         db_account = self.account_repository.get_by_email(
-            account.email_user,
+            account.username,
         )
 
         if db_account is None:
@@ -261,6 +261,8 @@ class GladosClient:
         account: GladosAccountConfig,
     ) -> dict[str, str] | None:
         """获取配置文件中的 Cookie。"""
+        if not account.cookies or not account.cookies.strip():
+            return None
         return ast.literal_eval(account.cookies) or None
 
     def _login_with_email(
@@ -281,7 +283,7 @@ class GladosClient:
 
         logger.info(
             "开始通过邮箱验证码登录 GLaDOS: username=%s",
-            account.email_user,
+            account.username,
         )
 
         # ================================================================
@@ -289,7 +291,7 @@ class GladosClient:
         # ================================================================
 
         auth_response = self.api.authorization(
-            account.email_user,
+            account.username,
         )
 
         auth_result = self.parser.parse_authorization(
@@ -299,7 +301,7 @@ class GladosClient:
         if not auth_result.success:
             logger.error(
                 "请求 GLaDOS 登录验证码失败: username=%s, error=%s",
-                account.email_user,
+                account.username,
                 auth_result.error,
             )
             return None
@@ -310,11 +312,11 @@ class GladosClient:
 
         logger.info(
             "等待 GLaDOS 登录验证码: username=%s",
-            account.email_user,
+            account.username,
         )
 
         login_code = email_tool.wait_login_code(
-            account.email_user,
+            account.username,
             timeout=600,
             interval=10,
         )
@@ -322,7 +324,7 @@ class GladosClient:
         if login_code is None:
             logger.error(
                 "获取 GLaDOS 登录验证码失败: username=%s",
-                account.email_user,
+                account.username,
             )
             return None
 
@@ -330,10 +332,10 @@ class GladosClient:
         # 验证验证码归属用户
         # ================================================================
 
-        if login_code.user != account.email_user:
+        if login_code.user != account.username:
             logger.error(
                 "验证码归属用户不符合登录用户: expected=%s, actual=%s",
-                account.email_user,
+                account.username,
                 login_code.user,
             )
             return None
@@ -343,7 +345,7 @@ class GladosClient:
         # ================================================================
 
         login_response = self.api.login(
-            account.email_user,
+            account.username,
             login_code.code,
         )
 
@@ -354,7 +356,7 @@ class GladosClient:
         if not login_result.success:
             logger.error(
                 "GLaDOS 邮箱登录失败: username=%s, error=%s",
-                account.email_user,
+                account.username,
                 login_result.error,
             )
             return None
@@ -364,13 +366,13 @@ class GladosClient:
         if not cookies:
             logger.error(
                 "GLaDOS 登录成功，但未获取到 Cookie: username=%s",
-                account.email_user,
+                account.username,
             )
             return None
 
         logger.info(
             "GLaDOS 邮箱登录成功: username=%s",
-            account.email_user,
+            account.username,
         )
 
         return cookies
@@ -397,7 +399,7 @@ class GladosClient:
         """
 
         db_account = self.account_repository.get_by_email(
-            account.email_user,
+            account.username,
         )
 
         # 将字典转为 JSON 字符串
@@ -405,7 +407,7 @@ class GladosClient:
 
         if db_account is None:
             self.account_repository.create(
-                email=account.email_user,
+                email=account.username,
                 cookies=cookies_str,
             )
             return
@@ -435,14 +437,14 @@ class GladosClient:
 
         logger.info(
             "开始 GLaDOS 签到: username=%s",
-            account.email_user,
+            account.username,
         )
 
         # ================================================================
         # 获取数据库账号
         # ================================================================
 
-        db_account = self.account_repository.get_by_email(account.email_user)
+        db_account = self.account_repository.get_by_email(account.username)
 
         # ================================================================
         # 检查是否已签到（防止重复签到）
@@ -455,7 +457,7 @@ class GladosClient:
         if today_success_count > 0:
             logger.info(
                 "GLaDOS 今日已签到: username=%s, success_count=%d",
-                account.email_user,
+                account.username,
                 today_success_count,
             )
 
@@ -502,21 +504,21 @@ class GladosClient:
             if result.already_checked:
                 logger.info(
                     "GLaDOS 今日已签到: username=%s, points=%d, streak=%d",
-                    account.email_user,
+                    account.username,
                     result.points,
                     result.streak,
                 )
             else:
                 logger.info(
                     "GLaDOS 签到成功: username=%s, points=%d, streak=%d",
-                    account.email_user,
+                    account.username,
                     result.points,
                     result.streak,
                 )
         else:
             logger.warning(
                 "GLaDOS 签到失败: username=%s, error=%s",
-                account.email_user,
+                account.username,
                 result.error,
             )
 
@@ -549,7 +551,7 @@ class GladosClient:
             (
                 account
                 for account in self.glados_config.accounts
-                if account.email_user == username
+                if account.username == username
             ),
             None,
         )
