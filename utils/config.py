@@ -115,6 +115,169 @@ class GlobalConfig:
 
 
 # ============================================================================
+# 默认配置模板
+# ============================================================================
+
+
+def _create_default_global_config() -> CommentedMap:
+    """
+    创建全局默认配置模板。
+
+    首次运行时生成：
+
+        proxy:
+          enabled: false
+          http: []
+          https: []
+          no_proxy: []
+
+        database:
+          host: localhost
+          port: 5432
+          database: ""
+          username: ""
+          password: ""
+
+    同时在文件顶部生成完整的配置注释。
+
+    Returns:
+        CommentedMap:
+            全局默认配置。
+    """
+    config = CommentedMap()
+
+    # ------------------------------------------------------------------------
+    # 文件顶部说明
+    # ------------------------------------------------------------------------
+
+    config.yaml_set_start_comment(
+        "\n".join(
+            [
+                "全局配置文件。",
+                "",
+                "本文件由程序首次启动时自动生成。",
+                "",
+                "该配置适用于所有应用，提供公共配置项。",
+                "",
+                "代理配置：",
+                "  - 支持 HTTP/HTTPS 代理",
+                "  - 支持 no_proxy 白名单",
+                "",
+                "数据库配置：",
+                "  - 支持 PostgreSQL 数据库连接",
+                "  - 默认使用本地 5432 端口",
+                "",
+                "请根据实际需要修改配置。",
+            ]
+        )
+    )
+
+    # ------------------------------------------------------------------------
+    # 代理配置
+    # ------------------------------------------------------------------------
+
+    config["proxy"] = CommentedMap()
+
+    config.yaml_set_comment_before_after_key(
+        "proxy",
+        before="代理配置。",
+    )
+
+    proxy = config["proxy"]
+
+    proxy["enabled"] = False
+    proxy.yaml_set_comment_before_after_key(
+        "enabled",
+        before="是否启用代理。\ntrue 表示启用，false 表示禁用。",
+    )
+
+    proxy["http"] = []
+    proxy.yaml_set_comment_before_after_key(
+        "http",
+        before=(
+            "HTTP 代理地址列表。\n\n"
+            "示例：\n"
+            '  - "http://127.0.0.1:7890"\n'
+            '  - "http://proxy.example.com:8080"'
+        ),
+    )
+
+    proxy["https"] = []
+    proxy.yaml_set_comment_before_after_key(
+        "https",
+        before=(
+            "HTTPS 代理地址列表。\n\n"
+            "示例：\n"
+            '  - "https://127.0.0.1:7890"\n'
+            '  - "https://proxy.example.com:8080"'
+        ),
+    )
+
+    proxy["no_proxy"] = []
+    proxy.yaml_set_comment_before_after_key(
+        "no_proxy",
+        before=(
+            "不使用代理的地址列表。\n\n"
+            "支持域名、IP 地址、CIDR 网段。\n\n"
+            "示例：\n"
+            '  - "localhost"\n'
+            '  - "127.0.0.1"\n'
+            '  - "192.168.0.0/16"\n'
+            '  - ".example.com"'
+        ),
+    )
+
+    # ------------------------------------------------------------------------
+    # 数据库配置
+    # ------------------------------------------------------------------------
+
+    config["database"] = CommentedMap()
+
+    config.yaml_set_comment_before_after_key(
+        "database",
+        before="数据库配置。",
+    )
+
+    database = config["database"]
+
+    database["host"] = "localhost"
+    database.yaml_set_comment_before_after_key(
+        "host",
+        before="数据库主机地址。",
+    )
+
+    database["port"] = 5432
+    database.yaml_set_comment_before_after_key(
+        "port",
+        before="数据库端口。\nPostgreSQL 默认端口为 5432。",
+    )
+
+    database["database"] = ""
+    database.yaml_set_comment_before_after_key(
+        "database",
+        before="数据库名称。",
+    )
+
+    database["username"] = ""
+    database.yaml_set_comment_before_after_key(
+        "username",
+        before="数据库用户名。",
+    )
+
+    database["password"] = ""
+    database.yaml_set_comment_before_after_key(
+        "password",
+        before=(
+            "数据库密码。\n\n"
+            "建议使用环境变量或密钥管理服务，\n"
+            "避免明文存储敏感信息。"
+        ),
+    )
+
+    return config
+
+
+# ============================================================================
 # 配置路径
 # ============================================================================
 
@@ -298,7 +461,11 @@ def load_global_config() -> GlobalConfig:
 
         config/global.yaml
 
-    如果配置文件不存在，则使用 GlobalConfig 默认配置。
+    如果配置文件不存在：
+
+    1. 自动创建带完整中文注释的配置模板。
+    2. 保存到 config/global.yaml。
+    3. 返回 GlobalConfig 默认配置。
 
     如果配置文件存在但为空，则同样使用默认配置。
 
@@ -308,11 +475,14 @@ def load_global_config() -> GlobalConfig:
     """
     path = get_config_path("global")
 
+    # 配置文件不存在，创建默认模板
     if not path.is_file():
-        logger.warning(
-            "全局配置文件不存在，使用默认配置: %s",
-            path,
-        )
+        logger.warning("全局配置文件不存在，创建配置模板: %s", path)
+
+        data = _create_default_global_config()
+        save_config("global", data)
+
+        logger.info("全局配置模板已创建: %s", path)
         return GlobalConfig()
 
     data = load_config("global")
