@@ -16,12 +16,11 @@ GLaDOS 数据访问层。
 """
 
 from datetime import UTC, datetime, timedelta
-from functools import wraps
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from apps.glados.core.entities import Account, CheckinLog, TrafficHistory
+from apps.glados.core.models import Account, CheckinLog, TrafficHistory
 from utils.crypto import Crypto
 from utils.database import Base, get_engine
 from utils.log import get_logger
@@ -62,44 +61,11 @@ def init_database() -> None:
 
 
 # ============================================================================
-# Repository 基类
-# ============================================================================
-
-
-class BaseRepository:
-    """Repository 基类。"""
-
-    def __init__(self, session: Session) -> None:
-        self.session = session
-
-    @staticmethod
-    def transactional(func):
-        """
-        装饰器：自动提交事务。
-
-        被装饰的方法执行后自动调用 session.commit()。
-        如果方法抛出异常，自动调用 session.rollback()。
-        """
-
-        @wraps(func)
-        def wrapper(self, *args, **kwargs):
-            try:
-                result = func(self, *args, **kwargs)
-                self.session.commit()
-                return result
-            except Exception:
-                self.session.rollback()
-                raise
-
-        return wrapper
-
-
-# ============================================================================
 # Account Repository
 # ============================================================================
 
 
-class AccountRepository(BaseRepository):
+class AccountRepository:
     """账号 Repository。"""
 
     def __init__(
@@ -107,18 +73,16 @@ class AccountRepository(BaseRepository):
         session: Session,
         crypto: Crypto,
     ) -> None:
-        super().__init__(session)
-
+        self.session = session
         self.crypto = crypto
 
     # ------------------------------------------------------------------------
     # Create
     # ------------------------------------------------------------------------
 
-    @BaseRepository.transactional
     def create(
         self,
-        email: str,
+        username: str,
         cookies: str | None = None,
         **kwargs,
     ) -> Account:
@@ -130,7 +94,7 @@ class AccountRepository(BaseRepository):
         encrypted_cookie = self.crypto.encrypt(cookies) if cookies is not None else None
 
         account = Account(
-            email=email,
+            username=username,
             cookies=encrypted_cookie,
             **kwargs,
         )
@@ -138,7 +102,7 @@ class AccountRepository(BaseRepository):
         self.session.add(account)
         self.session.flush()
 
-        logger.info("📝 创建账号: %s", email)
+        logger.info("📝 创建账号: %s", username)
 
         return account
 
@@ -153,13 +117,13 @@ class AccountRepository(BaseRepository):
         """根据 ID 获取账号。"""
         return self.session.get(Account, account_id)
 
-    def get_by_email(
+    def get_by_username(
         self,
-        email: str,
+        username: str,
     ) -> Account | None:
-        """根据邮箱获取账号。"""
+        """根据用户名获取账号。"""
         return self.session.execute(
-            select(Account).where(Account.email == email)
+            select(Account).where(Account.username == username)
         ).scalar_one_or_none()
 
     def get_active_accounts(self) -> list[Account]:
@@ -221,7 +185,6 @@ class AccountRepository(BaseRepository):
 
         return self.crypto.decrypt(account.cookies)
 
-    @BaseRepository.transactional
     def update_cookie(
         self,
         account: Account,
@@ -242,7 +205,6 @@ class AccountRepository(BaseRepository):
     # Update
     # ------------------------------------------------------------------------
 
-    @BaseRepository.transactional
     def update(
         self,
         account: Account,
@@ -257,7 +219,6 @@ class AccountRepository(BaseRepository):
 
         return account
 
-    @BaseRepository.transactional
     def update_checkin_result(
         self,
         account_id: int,
@@ -272,47 +233,33 @@ class AccountRepository(BaseRepository):
             return None
 
         # 应用层统一使用 UTC
-        account.last_checkin_at = datetime.now(UTC)
 
         if success:
-            account.checkin_days += 1
+            account.streak_days += 1
             account.total_days += 1
-            account.error_count = 0
-            account.last_error = None
-
+            account.last_checkin_at = datetime.now(UTC)
             logger.debug(
                 "✅ 账号 %s 签到成功",
-                account.email,
+                account.username,
             )
 
         else:
             account.error_count += 1
-            account.last_error = error or message
+            account.last_error_at = datetime.now(UTC)
 
             logger.warning(
                 "❌ 账号 %s 签到失败: %s",
-                account.email,
+                account.username,
                 error or message,
             )
 
-        # 连续/累计错误次数过多，标记账号无效
-        if account.error_count >= 5:
-            account.is_valid = False
-
-            logger.warning(
-                "⚠️ 账号 %s 错误次数过多，已标记为无效",
-                account.email,
-            )
-
         self.session.flush()
-
         return account
 
     # ------------------------------------------------------------------------
     # Delete
     # ------------------------------------------------------------------------
 
-    @BaseRepository.transactional
     def delete(
         self,
         account_id: int,
@@ -333,12 +280,11 @@ class AccountRepository(BaseRepository):
 
         logger.info(
             "🗑️ 软删除账号: %s",
-            account.email,
+            account.username,
         )
 
         return True
 
-    @BaseRepository.transactional
     def hard_delete(
         self,
         account_id: int,
@@ -349,14 +295,14 @@ class AccountRepository(BaseRepository):
         if not account:
             return False
 
-        email = account.email
+        username = account.username
 
         self.session.delete(account)
         self.session.flush()
 
         logger.info(
             "🗑️ 硬删除账号: %s",
-            email,
+            username,
         )
 
         return True
@@ -367,14 +313,17 @@ class AccountRepository(BaseRepository):
 # ============================================================================
 
 
-class CheckinLogRepository(BaseRepository):
+class CheckinLogRepository:
     """签到日志 Repository。"""
 
-    @BaseRepository.transactional
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
     def create(
         self,
         account_id: int,
         success: bool,
+        points: int,
         message: str | None = None,
     ) -> CheckinLog:
         """创建签到日志。"""
@@ -382,6 +331,7 @@ class CheckinLogRepository(BaseRepository):
             account_id=account_id,
             success=success,
             message=message,
+            points=points,
         )
 
         self.session.add(log)
@@ -411,6 +361,18 @@ class CheckinLogRepository(BaseRepository):
             .scalars()
             .all()
         )
+
+    def get_latest_by_account_id(
+        self,
+        account_id: int,
+    ) -> CheckinLog | None:
+        """获取账号最新的签到日志。"""
+        return self.session.execute(
+            select(CheckinLog)
+            .where(CheckinLog.account_id == account_id)
+            .order_by(desc(CheckinLog.checkin_at))
+            .limit(1)
+        ).scalar_one_or_none()
 
     def get_today_logs(self) -> list[CheckinLog]:
         """获取今日签到日志。"""
@@ -507,32 +469,34 @@ class CheckinLogRepository(BaseRepository):
 # ============================================================================
 
 
-class TrafficHistoryRepository(BaseRepository):
+class TrafficHistoryRepository:
     """流量历史 Repository。"""
 
-    @BaseRepository.transactional
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
     def create(
         self,
         account_id: int,
-        used_traffic: float,
-        total_traffic: float,
-        remaining_traffic: float,
+        used_traffic_bytes: float,
+        total_traffic_bytes: float,
+        remaining_traffic_bytes: float,
     ) -> TrafficHistory:
         """创建流量历史记录。"""
         record = TrafficHistory(
             account_id=account_id,
-            used_traffic=used_traffic,
-            total_traffic=total_traffic,
-            remaining_traffic=remaining_traffic,
+            used_traffic_bytes=used_traffic_bytes,
+            total_traffic_bytes=total_traffic_bytes,
+            remaining_traffic_bytes=remaining_traffic_bytes,
         )
 
         self.session.add(record)
         self.session.flush()
 
         logger.debug(
-            "📝 记录流量: account_id=%s, used=%sGB",
+            "📝 记录流量: account_id=%s, used=%s bytes",
             account_id,
-            used_traffic,
+            used_traffic_bytes,
         )
 
         return record
@@ -590,9 +554,9 @@ class TrafficHistoryRepository(BaseRepository):
         return [
             {
                 "date": record.recorded_at.strftime("%Y-%m-%d"),
-                "used": record.used_traffic,
-                "total": record.total_traffic,
-                "remaining": record.remaining_traffic,
+                "used": record.used_traffic_bytes,
+                "total": record.total_traffic_bytes,
+                "remaining": record.remaining_traffic_bytes,
             }
             for record in records
         ]

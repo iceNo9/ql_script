@@ -91,7 +91,7 @@ class GladosLoginResult(GladosBaseResult):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GladosLoginResult:
         """从字典解析登录结果。
-        
+
         注意：登录的 Cookie 来自 Response 对象，不是来自 JSON body。
         此方法仅用于满足抽象基类要求，实际不会被调用。
         """
@@ -294,6 +294,236 @@ class GladosCheckinResult(GladosBaseResult):
 
 
 # ============================================================
+# Points (积分) 结果类
+# ============================================================
+
+
+@dataclass
+class GladosPointsResult(GladosBaseResult):
+    """积分查询结果"""
+
+    points: float = 0.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GladosPointsResult:
+        # GLaDOS 积分接口返回格式：{"points": 123.45}
+        # 1. 检查 code 字段
+        code = data.get("code")
+        if code is None:
+            return cls.failure("Missing 'code' field")
+
+        # 2. code 必须为 0 才算成功
+        if code != 0:
+            message = data.get("message", data.get("msg", f"Code: {code}"))
+            return cls.failure(f"API returned error code: {message}")
+
+        # 3. 检查 points 字段
+        points = data.get("points")
+        if points is None:
+            return cls.failure("Missing 'points' field")
+
+        try:
+            points_val = float(points)
+        except (ValueError, TypeError):
+            return cls.failure(f"Invalid points value: {points}")
+
+        return cls(
+            success=True,
+            points=points_val,
+        )
+
+
+# ============================================================
+# Status (状态) 结果类
+# ============================================================
+
+
+@dataclass
+class GladosStatusResult(GladosBaseResult):
+    """用户状态查询结果"""
+
+    vip: int = 10  # 会员等级（10=10G, 21=200G）
+    left_days: float = 0.0  # 剩余天数
+    traffic_byte: int = 0  # 已用流量（字节）
+    total_traffic_byte: int = 0  # 总流量（字节）
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GladosStatusResult:
+        """
+        从字典解析状态查询结果。
+
+        GLaDOS 状态接口响应格式：
+        {
+            "code": 0,
+            "data": {
+                "vip": 21,
+                "leftDays": "212.0000000000000000",
+                "traffic": 3942588985,
+                ...
+            }
+        }
+
+        判定规则：
+            - 必须存在 code 字段
+            - code 必须为 0（成功）
+            - 必须存在 data 字段
+        """
+        # 1. 检查 code 字段
+        code = data.get("code")
+        if code is None:
+            return cls.failure("Missing 'code' field")
+
+        # 2. code 必须为 0 才算成功
+        if code != 0:
+            message = data.get("message", data.get("msg", f"Code: {code}"))
+            return cls.failure(f"API returned error code: {message}")
+
+        # 3. 检查 data 字段
+        api_data = data.get("data")
+        if not api_data or not isinstance(api_data, dict):
+            return cls.failure("Missing or invalid 'data' field")
+
+        # 4. 解析 vip（会员等级）
+        vip = api_data.get("vip", 10)
+        try:
+            vip = int(vip)
+        except (ValueError, TypeError):
+            vip = 10
+
+        # 5. 解析 leftDays（剩余天数）
+        left_days_str = api_data.get("leftDays", "0")
+        try:
+            left_days = float(left_days_str)
+        except (ValueError, TypeError):
+            left_days = 0.0
+
+        # 6. 解析 traffic（已用流量，单位：字节）
+        traffic_byte = api_data.get("traffic", 0)
+        try:
+            traffic_byte = int(traffic_byte)
+        except (ValueError, TypeError):
+            traffic_byte = 0
+
+        # 7. 根据 vip 等级计算总流量（单位：字节）
+        total_traffic_byte = cls._get_total_traffic_by_vip(vip)
+
+        return cls(
+            success=True,
+            vip=vip,
+            left_days=left_days,
+            traffic_byte=traffic_byte,
+            total_traffic_byte=total_traffic_byte,
+        )
+
+    @staticmethod
+    def _get_total_traffic_by_vip(vip: int) -> int:
+        """
+        根据 VIP 等级返回对应的总流量（单位：字节）。
+
+        已知映射：
+            - vip=10: 10GB
+            - vip=21: 200GB
+        """
+        # 1 GB = 1073741824 字节
+        GB = 1073741824
+
+        vip_traffic_map = {
+            10: 10 * GB,  # 10GB
+            21: 200 * GB,  # 200GB
+        }
+
+        # 默认返回 10GB（vip=10）
+        return vip_traffic_map.get(vip, 10 * GB)
+
+
+# ============================================================
+# Exchange (积分兑换) 结果类
+# ============================================================
+
+
+@dataclass
+class GladosExchangeResult(GladosBaseResult):
+    """积分兑换结果"""
+
+    message: str = ""  # 接口返回的消息
+    points_used: int = 0  # 使用的积分
+    days_added: int = 0  # 增加的天数
+    points: float = 0.0  # 剩余积分
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GladosExchangeResult:
+        """
+        从字典解析积分兑换结果。
+
+        GLaDOS 积分兑换接口响应格式：
+        {
+            "code": 0,
+            "message": "Successfully exchanged 500 points for 100 days",
+            "pointsUsed": 500,
+            "daysAdded": 100,
+            "points": "924.0000000000000000"
+        }
+
+        判定规则：
+            - 必须存在 code 字段
+            - code 必须为 0（成功）
+            - 必须存在 message 字段
+            - 必须存在 pointsUsed 字段
+            - 必须存在 daysAdded 字段
+            - 必须存在 points 字段
+        """
+        # 1. 检查 code 字段
+        code = data.get("code")
+        if code is None:
+            return cls.failure("Missing 'code' field")
+
+        # 2. code 必须为 0 才算成功
+        if code != 0:
+            message = data.get("message", data.get("msg", f"Code: {code}"))
+            return cls.failure(f"API returned error code: {message}")
+
+        # 3. 检查 message 字段
+        message = data.get("message", "")
+        if not message:
+            return cls.failure("Missing 'message' field")
+
+        # 4. 检查 pointsUsed 字段
+        points_used = data.get("pointsUsed")
+        if points_used is None:
+            return cls.failure("Missing 'pointsUsed' field")
+        try:
+            points_used = int(points_used)
+        except (ValueError, TypeError):
+            return cls.failure(f"Invalid pointsUsed value: {points_used}")
+
+        # 5. 检查 daysAdded 字段
+        days_added = data.get("daysAdded")
+        if days_added is None:
+            return cls.failure("Missing 'daysAdded' field")
+        try:
+            days_added = int(days_added)
+        except (ValueError, TypeError):
+            return cls.failure(f"Invalid daysAdded value: {days_added}")
+
+        # 6. 检查 points 字段（剩余积分）
+        points = data.get("points")
+        if points is None:
+            return cls.failure("Missing 'points' field")
+        try:
+            points = float(points)
+        except (ValueError, TypeError):
+            return cls.failure(f"Invalid points value: {points}")
+
+        return cls(
+            success=True,
+            message=message,
+            points_used=points_used,
+            days_added=days_added,
+            points=points,
+        )
+
+
+# ============================================================
 # Response 日志工具
 # ============================================================
 
@@ -449,10 +679,7 @@ class GladosParser:
 
         return data
 
-    # --------------------------------------------------------
     # Authorization
-    # --------------------------------------------------------
-
     @parse_result(GladosAuthorizationResult)
     def parse_authorization(
         self,
@@ -469,10 +696,7 @@ class GladosParser:
 
         return GladosAuthorizationResult.from_dict(data)
 
-    # --------------------------------------------------------
     # Login
-    # --------------------------------------------------------
-
     @parse_result(GladosLoginResult)
     def parse_login(
         self,
@@ -482,10 +706,7 @@ class GladosParser:
 
         return GladosLoginResult.from_response(response)
 
-    # --------------------------------------------------------
-    # Checkin（新增）
-    # --------------------------------------------------------
-
+    # Checkin
     @parse_result(GladosCheckinResult)
     def parse_checkin(
         self,
@@ -508,3 +729,36 @@ class GladosParser:
             )
 
         return GladosCheckinResult.from_dict(data)
+
+    # Points
+    @parse_result(GladosPointsResult)
+    def parse_points(self, response: requests.Response) -> GladosPointsResult:
+        """解析积分查询响应"""
+        data = self._response_to_dict(response)
+        if data is None:
+            return GladosPointsResult(
+                success=False, error="Response is not valid JSON dict"
+            )
+        return GladosPointsResult.from_dict(data)
+
+    # Status
+    @parse_result(GladosStatusResult)
+    def parse_status(self, response: requests.Response) -> GladosStatusResult:
+        """解析用户状态查询响应"""
+        data = self._response_to_dict(response)
+        if data is None:
+            return GladosStatusResult(
+                success=False, error="Response is not valid JSON dict"
+            )
+        return GladosStatusResult.from_dict(data)
+
+    # Exchange Points
+    @parse_result(GladosExchangeResult)
+    def parse_exchange(self, response: requests.Response) -> GladosExchangeResult:
+        """解析积分兑换响应"""
+        data = self._response_to_dict(response)
+        if data is None:
+            return GladosExchangeResult(
+                success=False, error="Response is not valid JSON dict"
+            )
+        return GladosExchangeResult.from_dict(data)

@@ -109,6 +109,16 @@ class PathManager:
         """环境变量配置目录"""
         return self._root_dir / "env"
 
+    @property
+    def asset(self) -> Path:
+        """资源目录。"""
+        return self._root_dir / "asset"
+
+    @property
+    def templates(self) -> Path:
+        """模板目录。"""
+        return self.asset / "templates"
+
     def get_path(self, *paths: str | Path) -> Path:
         """
         获取相对于项目根目录的路径
@@ -242,6 +252,16 @@ def env() -> Path:
     return _paths.env
 
 
+def asset() -> Path:
+    """获取资源目录。"""
+    return _paths.asset
+
+
+def templates() -> Path:
+    """获取模板目录。"""
+    return _paths.templates
+
+
 def get_path(*paths: str | Path) -> Path:
     """获取相对于项目根目录的路径"""
     return _paths.get_path(*paths)
@@ -270,6 +290,7 @@ def get_relative_path(path: str | Path) -> Path:
 # 添加 __all__ 以便于 from paths import * 导入
 __all__ = [
     "PathManager",
+    "asset",
     "config",
     "data",
     "ensure_dir",
@@ -283,6 +304,7 @@ __all__ = [
     "root",
     "src",
     "temp",
+    "templates",
     "tests",
     "utils",
 ]

@@ -2,12 +2,12 @@
 import sys
 
 from apps.glados.core.config import load_glados_config
-from apps.glados.core.server import GladosClient
 from apps.glados.core.repositories import init_database
+from apps.glados.core.server import GladosClient
 from utils.config import get_config_path, load_global_config
 from utils.log import get_logger
-from utils.paths import logs
 from utils.notify import send
+from utils.paths import logs
 
 logger = get_logger(name="glados_main", log_dir=logs(), fmt_type="detailed")
 
@@ -26,7 +26,7 @@ def main():
         logger.info("开始加载 GLaDOS 配置...")
         glados_config = load_glados_config()
         if not glados_config:
-            message = (f"GLaDOS 配置加载失败，请检查 {get_config_path('glados')} 文件")
+            message = f"GLaDOS 配置加载失败，请检查 {get_config_path('glados')} 文件"
             logger.error(message)
             send("GLaDOS 任务失败", message, SMTP_HTML="false")
             sys.exit(1)
@@ -42,7 +42,7 @@ def main():
 
         # 3. 初始化数据库, 创建客户端
         init_database()
-        
+
         client = GladosClient(
             global_config=global_config,
             glados_config=glados_config,
@@ -67,120 +67,139 @@ def main():
         logger.error(f"网络连接失败: {e}")
         sys.exit(1)
 
-    except Exception as e:
-        logger.exception(f"程序异常退出: {e}")
+    except Exception:
+        logger.exception("程序异常退出: ")
         sys.exit(1)
 
     finally:
         if client and hasattr(client, "close"):
             try:
                 client.close()
-            except Exception as e:
-                logger.warning(f"关闭 client 时出错: {e}")
+            except Exception:
+                logger.exception("关闭 client 时出错: ")
         logger.info("资源清理完成")
 
 
 def _execute_operations(client: GladosClient) -> None:
     """
     执行所有 GLaDOS 操作
-    
+
     Args:
         client: GLaDOS 客户端实例
     """
     try:
-        # ==================== 签到 ====================
+        # ==================== 1. 更新全部状态 ====================
+        logger.info("=" * 50)
+        logger.info("开始更新全部账号状态...")
+        try:
+            # 获取所有账号状态
+            status_results = client.status_all()
+            total_count = len(status_results)
+            success_count = sum(
+                1 for r in status_results.values() if r is not None and r.success
+            )
+            logger.info(f"状态更新完成: 成功 {success_count}/{total_count}")
+
+            # 记录状态详情
+            for username, result in status_results.items():
+                if result is None:
+                    logger.warning(f"获取状态失败 [{username}]: 返回结果为 None")
+                elif result.success:
+                    logger.info(
+                        f"账号 {username}: VIP={result.vip}, "
+                        f"剩余天数={result.left_days:.1f}天, "
+                        f"已用流量={result.traffic_byte / (1024**3):.2f}GB, "
+                        f"总流量={result.total_traffic_byte / (1024**3):.2f}GB"
+                    )
+                else:
+                    logger.warning(f"获取状态失败 [{username}]: {result.error}")
+
+            # 获取所有账号积分
+            points_results = client.points_all()
+            total_count = len(points_results)
+            success_count = sum(
+                1 for r in points_results.values() if r is not None and r.success
+            )
+            logger.info(f"积分更新完成: 成功 {success_count}/{total_count}")
+
+            for username, result in points_results.items():
+                if result is None:
+                    logger.warning(f"获取积分失败 [{username}]: 返回结果为 None")
+                elif result.success:
+                    logger.info(f"账号 {username}: 积分={result.points:.2f}")
+                else:
+                    logger.warning(f"获取积分失败 [{username}]: {result.error}")
+
+        except Exception:
+            logger.exception("更新状态失败: ")
+            raise  # 状态更新是基础操作，失败则终止
+
+        # ==================== 2. 签到 ====================
         logger.info("=" * 50)
         logger.info("开始执行签到...")
         try:
             checkin_results = client.checkin_all()
-            success_count = len([r for r in checkin_results if r.success])
+
+            # 获取所有成功的结果（排除 None）
+            success_results = [
+                r for r in checkin_results.values() if r is not None and r.success
+            ]
+            success_count = len(success_results)
             total_count = len(checkin_results)
+
             logger.info(f"签到完成: 成功 {success_count}/{total_count}")
-            
+
             # 记录失败的签到
-            failed_checkins = [r for r in checkin_results if not r.success]
-            for result in failed_checkins:
-                account = getattr(result, 'account', 'unknown')
-                message = getattr(result, 'message', '未知错误')
-                logger.warning(f"签到失败 [{account}]: {message}")
+            for username, result in checkin_results.items():
+                if result is None:
+                    logger.warning(f"签到失败 [{username}]: 返回结果为 None")
+                elif not result.success:
+                    logger.warning(f"签到失败 [{username}]: {result.message}")
         except Exception:
             logger.exception("签到失败，终止执行")
             raise  # 签到是核心功能，失败则终止
 
-        # # ==================== 礼品码兑换 ====================
-        # logger.info("=" * 50)
-        # logger.info("开始执行礼品码兑换...")
-        # try:
-        #     code_results = client.code()
-        #     success_count = len([r for r in code_results if r.success])
-        #     total_count = len(code_results)
-        #     logger.info(f"礼品码兑换完成: 成功 {success_count}/{total_count}")
-            
-        #     # 记录失败的兑换
-        #     failed_codes = [r for r in code_results if not r.success]
-        #     for result in failed_codes:
-        #         account = getattr(result, 'account', 'unknown')
-        #         message = getattr(result, 'message', '未知错误')
-        #         logger.warning(f"礼品码兑换失败 [{account}]: {message}")
-        # except Exception:
-        #     logger.error("礼品码兑换失败，继续执行后续任务")
+        # ==================== 3. 积分续费 ====================
+        logger.info("=" * 50)
+        logger.info("开始执行积分续费...")
+        try:
+            exchange_results = client.exchange_all_by_rules()
+            total_count = len(exchange_results)
+            success_count = sum(
+                1 for r in exchange_results.values() if r is not None and r.success
+            )
 
-        # # ==================== 蛋糕兑换 ====================
-        # logger.info("=" * 50)
-        # logger.info("开始执行蛋糕兑换...")
-        # try:
-        #     cake_results = client.cake()
-        #     success_count = len([r for r in cake_results if r.success])
-        #     total_count = len(cake_results)
-        #     logger.info(f"蛋糕兑换完成: 成功 {success_count}/{total_count}")
-            
-        #     failed_cakes = [r for r in cake_results if not r.success]
-        #     for result in failed_cakes:
-        #         account = getattr(result, 'account', 'unknown')
-        #         message = getattr(result, 'message', '未知错误')
-        #         logger.warning(f"蛋糕兑换失败 [{account}]: {message}")
-        # except Exception:
-        #     logger.error("蛋糕兑换失败，继续执行后续任务")
+            logger.info(f"积分续费完成: 成功 {success_count}/{total_count}")
 
-        # # ==================== 积分续费 ====================
-        # logger.info("=" * 50)
-        # logger.info("开始执行积分续费...")
-        # try:
-        #     exchange_results = client.exchange()
-        #     total_count = len(exchange_results)
-        #     logger.info(f"积分续费完成: 成功 {total_count} 笔")
-            
-        #     # 如果有详细的续费结果
-        #     if total_count > 0:
-        #         logger.info(f"共执行 {total_count} 笔积分续费")
-        # except Exception:
-        #     logger.error("积分续费失败，继续执行后续任务")
+            # 记录续费结果
+            for username, result in exchange_results.items():
+                if result is None:
+                    logger.debug(f"账号 {username}: 无需续费")
+                elif result.success:
+                    logger.info(
+                        f"账号 {username}: 续费成功，增加 {result.days_added} 天，剩余 {result.points} 积分"
+                    )
+                else:
+                    logger.warning(
+                        f"账号 {username}: 续费失败 - {result.message if hasattr(result, 'message') else '未知错误'}"
+                    )
+        except Exception:
+            logger.exception("积分续费失败，继续执行后续任务")
 
-        # # ==================== 收集账户信息 ====================
-        # logger.info("=" * 50)
-        # logger.info("开始收集账户信息...")
-        # try:
-        #     account_infos = client.collect_account_infos()
-        #     logger.info(f"账户信息收集完成，共 {len(account_infos)} 个账户")
-            
-        #     # 打印账户信息摘要
-        #     for info in account_infos:
-        #         account = getattr(info, 'account', 'unknown')
-        #         days = getattr(info, 'days', 0)
-        #         points = getattr(info, 'points', 0)
-        #         logger.info(f"  {account}: 剩余 {days} 天, 积分 {points}")
-        # except Exception:
-        #     logger.error("账户信息收集失败，继续执行后续任务")
+        # ==================== laster. 报告导出 ====================
+        logger.info("=" * 50)
+        logger.info("开始执行报告导出...")
+        try:
+            html = client.build_report_html()
+            logger.info("报告导出完成")
+            send(
+                title="GLaDOS 任务执行报告",
+                content=html,
+                SMTP_HTML="true",
+            )
 
-        # # ==================== 发送通知 ====================
-        # logger.info("=" * 50)
-        # logger.info("开始发送通知...")
-        # try:
-        #     notifier = client.get_notifier()
-        #     notifier.send()
-        #     logger.info("通知发送完成")
-        # except Exception:
-        #     logger.error("通知发送失败")
+        except Exception:
+            logger.exception("导出报告失败，结束执行")
 
     except Exception as e:
         logger.error(f"执行操作时发生严重错误: {e}")

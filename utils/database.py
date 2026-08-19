@@ -145,6 +145,9 @@ class Database:
             url,
             pool_pre_ping=True,
             pool_recycle=3600,
+            connect_args={
+                "options": "-c timezone=UTC",
+            },
         )
 
     # ------------------------------------------------------------------------

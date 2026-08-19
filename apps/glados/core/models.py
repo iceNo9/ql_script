@@ -5,6 +5,7 @@ GLaDOS 数据库实体定义。
 """
 
 from datetime import datetime
+
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -15,7 +16,6 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy import BigInteger, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from utils.database import Base
@@ -36,7 +36,7 @@ class Account(Base):
         autoincrement=True,
     )
 
-    email: Mapped[str] = mapped_column(
+    username: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         nullable=False,
@@ -49,13 +49,25 @@ class Account(Base):
         nullable=True,
     )
 
+    points: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
+    left_days: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+
     # 签到相关
     last_checkin_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    checkin_days: Mapped[int] = mapped_column(
+    streak_days: Mapped[int] = mapped_column(
         Integer,
         default=0,
         nullable=False,
@@ -76,7 +88,6 @@ class Account(Base):
     is_valid: Mapped[bool] = mapped_column(
         default=True,
         nullable=False,
-        index=True,
     )
 
     error_count: Mapped[int] = mapped_column(
@@ -85,8 +96,8 @@ class Account(Base):
         nullable=False,
     )
 
-    last_error: Mapped[str | None] = mapped_column(
-        Text,
+    last_error_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -105,7 +116,7 @@ class Account(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Account(id={self.id}, email={self.email})>"
+        return f"<Account(id={self.id}, username={self.username})>"
 
 
 class CheckinLog(Base):
@@ -125,7 +136,7 @@ class CheckinLog(Base):
 
     account_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey(f"{Account.__tablename__}.id"),
+        ForeignKey("glados_accounts.id"),
         nullable=False,
         index=True,
     )
@@ -136,6 +147,12 @@ class CheckinLog(Base):
         index=True,
     )
 
+    points: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    
     message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -176,22 +193,22 @@ class TrafficHistory(Base):
 
     account_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey(f"{Account.__tablename__}.id"),
+        ForeignKey("glados_accounts.id"),
         nullable=False,
         index=True,
     )
 
-    used_traffic: Mapped[float] = mapped_column(
+    used_traffic_bytes: Mapped[float] = mapped_column(
         Float,
         nullable=False,
     )
 
-    total_traffic: Mapped[float] = mapped_column(
+    total_traffic_bytes: Mapped[float] = mapped_column(
         Float,
         nullable=False,
     )
 
-    remaining_traffic: Mapped[float] = mapped_column(
+    remaining_traffic_bytes: Mapped[float] = mapped_column(
         Float,
         nullable=False,
     )

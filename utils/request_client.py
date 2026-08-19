@@ -1,6 +1,7 @@
 # common/request_client.py
 
 import time
+from typing import ClassVar
 from urllib.parse import urlparse
 
 import requests
@@ -21,7 +22,7 @@ class RequestClient:
 
     # 固定的设备指纹（方案一：最安全的做法）
     # 这些是模拟浏览器身份的核心字段，在一个会话中固定不变
-    _BASE_HEADERS = {
+    _BASE_HEADERS: ClassVar[dict[str, str]] = {
         # 传统 UA
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
         # 现代浏览器客户端提示 (必须和 UA 版本一致)

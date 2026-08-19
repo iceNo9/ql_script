@@ -2,7 +2,9 @@
 import ast
 import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, TypeVar
+from zoneinfo import ZoneInfo
 
 from apps.glados.core.api import (
     GladosAPI,
@@ -12,7 +14,20 @@ from apps.glados.core.api import (
 # 导入配置 DTO
 from apps.glados.core.config import GladosAccountConfig, GladosConfig
 from apps.glados.core.email import EmailTool
-from apps.glados.core.parser import GladosParser, GladosCheckinResult
+from apps.glados.core.notify_builder import SectionBuilder
+from apps.glados.core.notify_dto import (
+    AccountInfo,
+    AppConfig,
+    CheckinResult,
+    ReportData,
+)
+from apps.glados.core.parser import (
+    GladosCheckinResult,
+    GladosExchangeResult,
+    GladosParser,
+    GladosPointsResult,
+    GladosStatusResult,
+)
 from apps.glados.core.repositories import (
     Account,
     AccountRepository,
@@ -25,12 +40,14 @@ from utils.database import get_session
 from utils.email import EmailClient
 from utils.log import get_logger
 from utils.paths import logs
+from utils.renderer import ReportRenderer
 from utils.request_client import RequestClient
 
 logger = get_logger(name="glados_server", log_dir=logs(), fmt_type="detailed")
 from functools import wraps
 
 T = TypeVar("T")
+APP_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def authenticated(func: Callable[..., T]) -> Callable[..., T]:
@@ -187,7 +204,7 @@ class GladosClient:
         获取数据库账号，不存在则创建。
         """
 
-        db_account = self.account_repository.get_by_email(
+        db_account = self.account_repository.get_by_username(
             account.username,
         )
 
@@ -200,7 +217,7 @@ class GladosClient:
         )
 
         return self.account_repository.create(
-            email=account.username,
+            username=account.username,
         )
 
     # ====================================================================
@@ -239,7 +256,7 @@ class GladosClient:
         数据库中的 Cookie 为加密存储，
         Repository 负责解密。
         """
-        db_account = self.account_repository.get_by_email(
+        db_account = self.account_repository.get_by_username(
             account.username,
         )
 
@@ -398,7 +415,7 @@ class GladosClient:
         Cookie 的加密由 AccountRepository 负责。
         """
 
-        db_account = self.account_repository.get_by_email(
+        db_account = self.account_repository.get_by_username(
             account.username,
         )
 
@@ -444,56 +461,39 @@ class GladosClient:
         # 获取数据库账号
         # ================================================================
 
-        db_account = self.account_repository.get_by_email(account.username)
+        db_account = self.account_repository.get_by_username(account.username)
 
-        # ================================================================
+        # 获取当前本地时间
+        now_local = datetime.now(APP_TIMEZONE)
+
         # 检查是否已签到（防止重复签到）
-        # ================================================================
+        if db_account.last_checkin_at is not None:
+            # 数据库存储的是UTC时间，直接转换
+            last_checkin_utc = db_account.last_checkin_at
+            last_checkin_local = last_checkin_utc.astimezone(APP_TIMEZONE)
 
-        today_success_count = self.checkin_log_repository.get_success_count_today(
-            db_account.id
-        )
+            # 详细日志
+            logger.info(f"""
+            ========== 签到时间检查 ==========
+            当前本地时间: {now_local.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Shanghai)
+            上次签到UTC时间: {last_checkin_utc.strftime('%Y-%m-%d %H:%M:%S')} (UTC)
+            上次签到本地时间: {last_checkin_local.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Shanghai)
+            上次签到本地日期: {last_checkin_local.date()}
+            当前本地日期: {now_local.date()}
+            是否为同一天: {last_checkin_local.date() == now_local.date()}
+            ==================================
+            """)
 
-        if today_success_count > 0:
-            logger.info(
-                "GLaDOS 今日已签到: username=%s, success_count=%d",
-                account.username,
-                today_success_count,
-            )
+            if last_checkin_local.date() == now_local.date():
+                logger.info("账号今日已签到（本地时间 Asia/Shanghai），跳过")
+                return
+            else:
+                logger.info("账号今日未签到（本地时间 Asia/Shanghai），继续执行")
+        else:
+            logger.info("账号从未签到过，首次签到")
 
-            # 获取最新的签到结果用于返回
-            recent_logs = self.checkin_log_repository.get_by_account_id(
-                db_account.id,
-                limit=1,
-            )
-
-            if recent_logs:
-                last_log = recent_logs[0]
-                return GladosCheckinResult(
-                    success=True,
-                    already_checked=True,
-                    message=last_log.message or "今日已签到",
-                    points=0,  # 无法从日志中获取 points
-                    streak=0,  # 无法从日志中获取 streak
-                    error=None,
-                )
-
-            # 如果日志不存在（理论上不可能），返回一个默认结果
-            return GladosCheckinResult(
-                success=True,
-                already_checked=True,
-                message="今日已签到",
-                points=0,
-                streak=0,
-                error=None,
-            )
-
-        # ================================================================
         # 执行签到
-        # ================================================================
-
         response = self.api.checkin()
-
         result = self.parser.parse_checkin(response)
 
         # ================================================================
@@ -522,9 +522,7 @@ class GladosClient:
                 result.error,
             )
 
-        # ================================================================
         # 数据库更新
-        # ================================================================
 
         self.account_repository.update_checkin_result(
             account_id=db_account.id,
@@ -533,12 +531,17 @@ class GladosClient:
             error=result.error,
         )
 
+        db_account.points += result.points
+        self.account_repository.update(db_account)
+
         self.checkin_log_repository.create(
             account_id=db_account.id,
             success=result.success,
             message=result.message if result.success else result.error,
+            points=result.points,
         )
 
+        self.session.commit()
         return result
 
     def checkin(
@@ -569,14 +572,20 @@ class GladosClient:
 
         try:
             self._get_or_create_db_account(account)
-            return self._checkin()
+            result = self._checkin()
+            self.session.commit()
+            return result
         finally:
             self._current_account = None
 
-    def checkin_all(self) -> list[GladosCheckinResult]:
-        """遍历全部 GLaDOS 账号执行签到。"""
+    def checkin_all(self) -> dict[str, GladosCheckinResult | None]:
+        """
+        遍历全部 GLaDOS 账号执行签到。
 
-        results: list[GladosCheckinResult] = []
+        Returns:
+            字典，key 为用户名，value 为签到结果（失败为 None）。
+        """
+        results: dict[str, GladosCheckinResult | None] = {}
 
         if not self.glados_config.accounts:
             logger.warning("没有配置 GLaDOS 账号，跳过签到")
@@ -587,643 +596,637 @@ class GladosClient:
 
             try:
                 self._get_or_create_db_account(account)
-                results.append(self._checkin())
+                result = self._checkin()
+                results[account.username] = result
+            except Exception:
+                logger.exception(
+                    "账号 %s 签到异常: ",
+                    account.username,
+                )
+                results[account.username] = None
             finally:
                 self._current_account = None
 
+        self.session.commit()
         return results
 
-        # email_tool = EmailTool()
-        # api = GladosAPI()
-
-        # # 从配置中提取用户名列表
-        # self.usernames = [acc.username for acc in glados_config.accounts]
-
-        # self.client = RequestClient(proxies=global_config.proxy, max_retries=2)
-        # self.server = GladosServer(self.client)
-        # self.email_extractor = EmailCodeExtractor(global_config.email)
-
-        # # 操作结果（用于通知）
-        # self._checkin_results: List[GladosCheckinResult] = []
-        # self._code_results: List[CodeResult] = []
-        # self._redeem_results: List[RedeemResult] = []
-        # self._account_infos: List[AccountInfo] = []
-
-
-#     # -------------------------------
-#     # 数据库缓存操作
-#     # -------------------------------
-
-#     def _update_db_user_from_status(
-#         self, username: str, status_result: GladosStatusResult, cookies: Dict = None
-#     ):
-#         """从状态结果更新数据库用户信息"""
-#         db_user = get(username)
-#         if db_user is None:
-#             db_user = GladosUser(username=username)
-
-#         db_user.vip_level = status_result.vip
-#         db_user.remaining_days = int(status_result.left_days)
-#         db_user.used_traffic_kb = status_result.traffic
-#         db_user.last_check_at = int(time.time())
-
-#         if cookies:
-#             db_user.cookies = cookies
-
-#         save(db_user)
-#         return db_user
-
-#     def _mark_cookies_invalid(self, username: str):
-#         """标记 cookies 无效"""
-#         db_user = get(username)
-#         if db_user:
-#             db_user.cookies_valid = False
-#             db_user.cookies_expire_at = 0
-#             db_user.last_check_at = int(time.time())
-#             save(db_user)
-#             logger.debug(f"[缓存] 账户 {username} cookies 已标记为无效")
-
-#     def _mark_cookies_valid(self, username: str, cookies: Dict):
-#         """标记 cookies 有效"""
-#         db_user = get(username)
-#         if db_user is None:
-#             db_user = GladosUser(username=username)
-
-#         db_user.cookies = cookies
-#         db_user.cookies_valid = True
-#         db_user.cookies_expire_at = int(time.time() + CACHE_COOKIES_VALID_SECONDS)
-#         db_user.last_check_at = int(time.time())
-#         save(db_user)
-#         logger.debug(
-#             f"[缓存] 账户 {username} cookies 已标记为有效，有效期 {CACHE_COOKIES_VALID_HOURS} 小时"
-#         )
-
-#     # -------------------------------
-#     # 登录相关
-#     # -------------------------------
-
-#     def _check_login(self, username: str) -> bool:
-#         """检查登录状态（优先使用数据库缓存标记）"""
-#         current_time = int(time.time())
-
-#         # 1. 从数据库获取缓存状态
-#         db_user = get(username)
-
-#         # 2. 检查缓存标记是否有效
-#         if db_user and db_user.cookies_valid:
-#             if db_user.cookies_expire_at > current_time:
-#                 logger.debug(f"[缓存] 账户 {username} cookies 标记有效，直接使用")
-#                 if db_user.cookies:
-#                     self.server.update_cookies(db_user.cookies)
-#                 return True
-#             else:
-#                 logger.debug(f"[缓存] 账户 {username} cookies 标记已过期")
-
-#         # 3. 缓存无效，请求 API 验证
-#         logger.debug(f"[API] 验证账户 {username} cookies 有效性")
-
-#         if db_user and db_user.cookies:
-#             self.server.update_cookies(db_user.cookies)
-#         else:
-#             self.server.clear_cookies()
-
-#         result = self.server.request_status()
-
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 登录状态服务异常")
-#             return False
-
-#         if result.success:
-#             logger.debug(f"[+] 账户 {username} 登录状态正常")
-#             self._update_db_user_from_status(
-#                 username, result, db_user.cookies if db_user else None
-#             )
-#             if db_user and db_user.cookies:
-#                 self._mark_cookies_valid(username, db_user.cookies)
-#             return True
-#         else:
-#             logger.debug(f"[!] 账户 {username} 登录状态检查失败")
-#             self._mark_cookies_invalid(username)
-#             return False
-
-#     def login(self, username: str) -> bool:
-#         """登录账号（邮箱验证码方式）"""
-#         logger.info(f"[*] 开始登录账户 {username}")
-
-#         if self._check_login(username):
-#             logger.info(f"[+] 账户 {username} 已有有效登录")
-#             return True
-
-#         logger.info(f"[*] 账户 {username} 请求发送验证码")
-#         result = self.server.request_authorization(username)
-#         if not result or not result.success:
-#             logger.error(f"[!] 账户 {username} 请求发送验证码失败")
-#             return False
-
-#         code = self.email_extractor.get_login_code(
-#             email_address=username, max_wait_minutes=5, check_interval_seconds=10
-#         )
-#         if not code:
-#             logger.error(f"[!] 账户 {username} 获取验证码失败")
-#             return False
-
-#         success = self.server.request_login(username, code)
-#         if not success:
-#             logger.error(f"[!] 账户 {username} 验证码登录失败")
-#             return False
-
-#         logger.info(f"[+] 账户 {username} 验证码登录成功")
-#         cookies = self.server.get_cookies()
-
-#         status_result = self.server.request_status()
-#         if status_result and status_result.success:
-#             self._update_db_user_from_status(username, status_result, cookies)
-#             self._mark_cookies_valid(username, cookies)
-#         else:
-#             self._mark_cookies_valid(username, cookies)
-
-#         return True
-
-#     # -------------------------------
-#     # 签到
-#     # -------------------------------
-
-#     @require_login
-#     def _checkin(self, username: str) -> Optional[GladosGladosCheckinResult]:
-#         result = self.server.request_checkin()
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 签到失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.info(f"[+] 账户 {username} 签到成功，获得 {result.points} 积分")
-#             update_sign(username, gained_points=result.points)
-#         else:
-#             logger.error(f"[!] 账户 {username} 签到失败: {result.message}")
-#             if "login" in result.message.lower() or "auth" in result.message.lower():
-#                 self._mark_cookies_invalid(username)
-
-#         return result
-
-#     def checkin(self) -> List[GladosCheckinResult]:
-#         """执行所有账户签到"""
-#         logger.info("[*] 开始执行 GLaDOS 账户签到")
-#         results = []
-
-#         for username in self.usernames:
-#             logger.info(f"[*] 账户 {username} 开始签到")
-#             ret = self._checkin(username)
-#             if ret:
-#                 result = GladosCheckinResult(
-#                     username=username,
-#                     success=ret.success,
-#                     point=ret.points,
-#                     message=ret.message,
-#                 )
-#                 results.append(result)
-
-#         logger.info(f"[✓] 签到完成，共处理 {len(results)} 个结果")
-#         self._checkin_results = results
-#         return results
-
-#     # -------------------------------
-#     # 积分信息
-#     # -------------------------------
-
-#     @require_login
-#     def _point(
-#         self, username: str, force_refresh: bool = False
-#     ) -> Optional[GladosPointResult]:
-#         if not force_refresh:
-#             db_user = get(username)
-#             if db_user and db_user.last_check_at:
-#                 if time.time() - db_user.last_check_at < CACHE_POINT_TTL_SECONDS:
-#                     logger.debug(f"[缓存] 使用数据库缓存的积分数据: {username}")
-#                     return None
-
-#         result = self.server.request_point()
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 获取积分失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.debug(f"[+] 账户 {username} 获取积分成功: {result.points}")
-#             db_user = get(username)
-#             if db_user:
-#                 db_user.points = int(result.points)
-#                 save(db_user)
-#         else:
-#             logger.error(f"[!] 账户 {username} 获取积分失败")
-
-#         return result
-
-#     # -------------------------------
-#     # 礼品码兑换
-#     # -------------------------------
-
-#     @require_login
-#     def _code(self, username: str, code: str) -> Optional[GladosCodeResult]:
-#         result = self.server.request_code(code)
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 兑换礼品码失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.info(f"[+] 账户 {username} 兑换礼品码成功")
-#         else:
-#             logger.error(f"[!] 账户 {username} 兑换礼品码失败: {result.message}")
-
-#         return result
-
-#     def code(self) -> List[CodeResult]:
-#         """
-#         兑换礼品码（从邮箱提取）
-#         """
-#         logger.info("[*] 开始执行 GLaDOS 账户兑换礼品码")
-#         results = []
-
-#         # 从邮箱获取有效的礼品码
-#         gift_codes = self.email_extractor.get_gift_codes()
-#         if not gift_codes:
-#             logger.info("[i] 未找到有效的礼品码，跳过兑换")
-#             return results
-
-#         for gift in gift_codes:
-#             gift_username = gift.get("username")
-#             gift_code = gift.get("code")
-#             valid_day = gift.get("valid_day", 0)
-
-#             if gift_username not in self.usernames:
-#                 logger.info(f"[!] 礼品码归属 {gift_username} 不在账户列表中，跳过")
-#                 continue
-
-#             logger.info(f"[*] 账户 {gift_username} 开始兑换礼品码")
-#             ret = self._code(gift_username, gift_code)
-#             if ret:
-#                 result = CodeResult(
-#                     username=gift_username,
-#                     success=ret.success,
-#                     days=int(valid_day) if ret.success else 0,
-#                     message=ret.message,
-#                 )
-#                 results.append(result)
-
-#         logger.info(f"[✓] 礼品码兑换完成，共处理 {len(results)} 个结果")
-#         self._code_results = results
-#         return results
-
-#     # -------------------------------
-#     # 状态信息
-#     # -------------------------------
-
-#     @require_login
-#     def _status(
-#         self, username: str, force_refresh: bool = False
-#     ) -> Optional[GladosStatusResult]:
-#         if not force_refresh:
-#             db_user = get(username)
-#             if db_user and db_user.last_check_at:
-#                 if time.time() - db_user.last_check_at < CACHE_STATUS_TTL_SECONDS:
-#                     logger.debug(f"[缓存] 使用数据库缓存的状态数据: {username}")
-#                     if db_user.cookies:
-#                         self.server.update_cookies(db_user.cookies)
-#                     return None
-
-#         result = self.server.request_status()
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 获取状态失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.debug(f"[+] 账户 {username} 获取状态成功")
-#             self._update_db_user_from_status(username, result)
-#         else:
-#             logger.error(f"[!] 账户 {username} 获取状态失败")
-#             self._mark_cookies_invalid(username)
-
-#         return result
-
-#     # -------------------------------
-#     # 蛋糕兑换
-#     # -------------------------------
-
-#     @require_login
-#     def _cake(self, username: str) -> Optional[GladosCakesResult]:
-#         result = self.server.request_cakes()
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 获取蛋糕列表失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.info(
-#                 f"[+] 账户 {username} 获取蛋糕列表成功，共 {len(result.available)} 个可用蛋糕"
-#             )
-#         else:
-#             logger.error(f"[!] 账户 {username} 获取蛋糕列表失败")
-
-#         return result
-
-#     @require_login
-#     def _redeem_cake(self, username: str, cake_id: int) -> Optional[GladosRedeemResult]:
-#         result = self.server.request_redeem(cake_id)
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 兑换蛋糕失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.info(f"[+] 账户 {username} 兑换蛋糕成功")
-#         else:
-#             logger.error(f"[!] 账户 {username} 兑换蛋糕失败: {result.message}")
-
-#         return result
-
-#     def cake(self) -> List[RedeemResult]:
-#         """执行所有账户的蛋糕兑换"""
-#         logger.info("[*] 开始执行 GLaDOS 蛋糕兑换")
-#         results = []
-
-#         for username in self.usernames:
-#             status_result = self._status(username)
-#             if not status_result:
-#                 continue
-
-#             if status_result.cake_count == 0:
-#                 logger.info(f"[i] 账户 {username} 没有可用蛋糕")
-#                 continue
-
-#             cake_result = self._cake(username)
-#             if cake_result and cake_result.success:
-#                 for cake in cake_result.available:
-#                     ret = self._redeem_cake(username, cake.id)
-#                     if ret:
-#                         result = RedeemResult(
-#                             username=username,
-#                             success=ret.success,
-#                             amount=cake.amount,
-#                             message=ret.message,
-#                         )
-#                         results.append(result)
-#                         logger.info(
-#                             f"[+] 账户 {username} 兑换蛋糕 {cake.id}，获得 {cake.amount} 天"
-#                         )
-
-#         logger.info(f"[✓] 蛋糕兑换完成，共处理 {len(results)} 个结果")
-#         self._redeem_results = results
-#         return results
-
-#     # -------------------------------
-#     # 积分兑换（基于配置的续费规则）
-#     # -------------------------------
-
-#     @require_login
-#     def _exchange(
-#         self, username: str, plan_type: str
-#     ) -> Optional[GladosExchangeResult]:
-#         result = self.server.request_exchange(plan_type)
-#         if not result:
-#             logger.error(f"[!] 账户 {username} 积分兑换失败, 服务异常")
-#             return None
-
-#         if result.success:
-#             logger.info(
-#                 f"[+] 账户 {username} 积分兑换成功: 使用 {result.points_used} 积分获得 {result.days_added} 天"
-#             )
-#             logger.info(f"[+] 账户 {username} 剩余积分: {result.points_remaining}")
-
-#             db_user = get(username)
-#             if db_user:
-#                 db_user.points = int(result.points_remaining)
-#                 db_user.remaining_days += result.days_added
-#                 save(db_user)
-#         else:
-#             logger.error(f"[!] 账户 {username} 积分兑换失败: {result.message}")
-
-#         return result
-
-#     def exchange(self) -> List[GladosExchangeResult]:
-#         """根据配置的续费规则执行积分兑换"""
-#         logger.info("[*] 开始根据续费配置执行积分兑换")
-
-#         renewal_rules = self.glados_config.renewals
-#         if not renewal_rules:
-#             logger.info("[i] 未配置续费规则，跳过兑换")
-#             return []
-
-#         results = []
-
-#         for rule in renewal_rules:
-#             username = rule.username
-#             plan_type = rule.plan_type
-#             days_threshold = rule.days_threshold
-
-#             if username not in self.usernames:
-#                 logger.warning(f"[!] 续费规则中的账户 {username} 不在账户列表中，跳过")
-#                 continue
-
-#             if plan_type not in EXCHANGE_POINTS_MAP:
-#                 logger.error(
-#                     f"[!] 无效的续费计划: {plan_type}，支持: {list(EXCHANGE_POINTS_MAP.keys())}"
-#                 )
-#                 continue
-
-#             logger.info(
-#                 f"[*] 处理续费规则: 账户 {username}, 计划 {plan_type}, 阈值 {days_threshold} 天"
-#             )
-
-#             status = self._status(username)
-#             if not status or not status.success:
-#                 logger.error(f"[!] 账户 {username} 状态获取失败，跳过续费检查")
-#                 continue
-
-#             left_days = status.left_days
-#             logger.info(
-#                 f"[*] 账户 {username} 剩余天数: {left_days:.1f} 天, 阈值: {days_threshold} 天"
-#             )
-
-#             if left_days >= days_threshold:
-#                 logger.info(f"[i] 账户 {username} 剩余天数充足，无需续费")
-#                 continue
-
-#             logger.info(
-#                 f"[!] 账户 {username} 剩余天数 {left_days:.1f} < {days_threshold}，触发续费"
-#             )
-
-#             required_points = EXCHANGE_POINTS_MAP[plan_type]
-
-#             point_result = self._point(username)
-#             if not point_result or not point_result.success:
-#                 logger.error(f"[!] 账户 {username} 积分获取失败，跳过续费")
-#                 continue
-
-#             current_points = point_result.points
-#             logger.info(
-#                 f"[*] 账户 {username} 当前积分: {current_points}, 需要: {required_points}"
-#             )
-
-#             if current_points < required_points:
-#                 logger.warning(
-#                     f"[!] 账户 {username} 积分不足: {current_points} < {required_points}，跳过续费"
-#                 )
-#                 continue
-
-#             result = self._exchange(username, plan_type)
-#             if result and result.success:
-#                 results.append(result)
-
-#         logger.info(f"[✓] 续费兑换完成，成功 {len(results)} 笔交易")
-#         return results
-
-#     def exchange_by_id(
-#         self, username: str, plan_type: str = "plan500"
-#     ) -> Optional[GladosExchangeResult]:
-#         """
-#         根据用户名进行积分兑换
-
-#         Args:
-#             username: 用户名（邮箱）
-#             plan_type: 兑换计划类型，支持 "plan500", "plan200", "plan100"
-#         """
-#         logger.info(f"[*] 兑换请求: 账号 {username}, 计划 {plan_type}")
-
-#         if plan_type not in EXCHANGE_POINTS_MAP:
-#             logger.error(
-#                 f"[!] 无效的兑换计划: {plan_type}, 支持: {list(EXCHANGE_POINTS_MAP.keys())}"
-#             )
-#             return None
-
-#         if username not in self.usernames:
-#             logger.error(f"[!] 未找到账号: {username}")
-#             return None
-
-#         # 确保登录状态
-#         if not self._check_login(username):
-#             if not self.login(username):
-#                 logger.error(f"[!] 账号 {username} 登录失败，取消兑换")
-#                 return None
-
-#         result = self._exchange(username, plan_type)
-#         if result and result.success:
-#             logger.info(f"[✓] 兑换成功: 账号 {username} 获得 {result.days_added} 天")
-#         else:
-#             error_msg = result.message if result else "服务异常"
-#             logger.error(f"[✗] 兑换失败: 账号 {username}, 原因: {error_msg}")
-
-#         return result
-
-#     # -------------------------------
-#     # 账户信息收集
-#     # -------------------------------
-
-#     def collect_account_infos(self) -> List[AccountInfo]:
-#         """收集所有账户的信息"""
-#         logger.info("[*] 开始收集账户信息")
-#         account_infos = []
-
-#         for username in self.usernames:
-#             logger.info(f"[*] 获取账户 {username} 信息")
-
-#             status = self._status(username)
-#             point = self._point(username)
-#             db_user = get(username)
-
-#             if status and status.success and point and point.success:
-#                 total_traffic = self.server.get_total_traffic(status.vip)
-#                 use_percent = (
-#                     (status.traffic / total_traffic * 100) if total_traffic > 0 else 0.0
-#                 )
-
-#                 account_info = AccountInfo(
-#                     username=username,
-#                     points=int(point.points),
-#                     left_days=int(status.left_days),
-#                     current_traffic=status.traffic,
-#                     total_traffic=total_traffic,
-#                     use_percent=round(use_percent, 2),
-#                 )
-#                 account_infos.append(account_info)
-#                 logger.info(f"[+] 账户 {username} 信息获取成功")
-#             elif db_user:
-#                 total_traffic = self.server.get_total_traffic(db_user.vip_level)
-#                 use_percent = (
-#                     (db_user.used_traffic_kb / total_traffic * 100)
-#                     if total_traffic > 0
-#                     else 0.0
-#                 )
-
-#                 account_info = AccountInfo(
-#                     username=username,
-#                     points=db_user.points,
-#                     left_days=db_user.remaining_days,
-#                     current_traffic=db_user.used_traffic_kb,
-#                     total_traffic=total_traffic,
-#                     use_percent=round(use_percent, 2),
-#                 )
-#                 account_infos.append(account_info)
-#                 logger.info(f"[缓存] 账户 {username} 使用缓存数据")
-#             else:
-#                 logger.error(f"[!] 账户 {username} 信息获取失败")
-
-#         self._account_infos = account_infos
-#         logger.info(f"[✓] 账户信息收集完成，共 {len(account_infos)} 个账户")
-#         return account_infos
-
-#     # -------------------------------
-#     # 通知
-#     # -------------------------------
-
-#     def get_notifier(self) -> GladosNotifier:
-#         """获取通知器实例"""
-#         import yagmail
-
-#         try:
-#             yagmail.sender.SMTP.__del__ = lambda self: None
-#             mail = self.global_config.email
-#             smtp = mail.smtp
-#             smtp_client = yagmail.SMTP(
-#                 user=mail.username,
-#                 password=mail.password,
-#                 host=smtp.host,
-#                 port=smtp.port,
-#                 smtp_ssl=smtp.secure,
-#             )
-#             logger.info("[+] SMTP 客户端登录成功")
-
-#             return GladosNotifier(
-#                 smtp_client=smtp_client,
-#                 email_to=self.global_config.email_to,
-#                 template_path=Path("modules/glados/templates/glados_notification.html"),
-#                 checkin_results=self._checkin_results,
-#                 code_results=self._code_results,
-#                 redeem_results=self._redeem_results,
-#                 account_infos=self._account_infos,
-#             )
-#         except Exception as e:
-#             logger.error(f"[!] 创建通知器失败: {e}", exc_info=True)
-#             raise
-
-#     # -------------------------------
-#     # 获取内部结果（用于通知）
-#     # -------------------------------
-
-#     @property
-#     def checkin_results(self) -> List[GladosCheckinResult]:
-#         return self._checkin_results
-
-#     @property
-#     def code_results(self) -> List[CodeResult]:
-#         return self._code_results
-
-#     @property
-#     def redeem_results(self) -> List[RedeemResult]:
-#         return self._redeem_results
-
-#     @property
-#     def account_infos(self) -> List[AccountInfo]:
-#         return self._account_infos
-
-
-# # ==================== 导出 ====================
-
-# __all__ = [
-#     "GladosClient",
-# ]
+    # ====================================================================
+    # Points (积分)
+    # ====================================================================
+
+    @authenticated
+    def _points(self) -> GladosPointsResult | None:
+        """
+        获取当前 GLaDOS 账号的积分信息。
+
+        当前账号由 `_current_account` 提供。
+        认证由 `authenticated` 装饰器负责。
+
+        Returns:
+            当前积分值，失败返回 None。
+        """
+        account = self._current_account
+
+        if account is None:
+            raise RuntimeError("当前没有选择 GLaDOS 账号")
+
+        logger.info(
+            "获取 GLaDOS 积分信息: username=%s",
+            account.username,
+        )
+
+        response = self.api.get_points()
+        result = self.parser.parse_points(response)
+
+        if not result.success:
+            logger.warning(
+                "获取 GLaDOS 积分失败: username=%s, error=%s",
+                account.username,
+                result.error,
+            )
+            return None
+
+        logger.debug(
+            "获取 GLaDOS 积分成功: username=%s, points=%.2f",
+            account.username,
+            result.points,
+        )
+
+        # 更新数据库
+        db_account = self.account_repository.get_by_username(account.username)
+        if db_account is not None:
+            db_account.points = result.points
+            self.account_repository.update(db_account)
+
+        return result
+
+    def points(self, username: str) -> GladosPointsResult | None:
+        """
+        获取指定账号的积分信息。
+
+        Args:
+            username: 用户名（邮箱）
+
+        Returns:
+            当前积分值，失败返回 None。
+        """
+        account = next(
+            (
+                account
+                for account in self.glados_config.accounts
+                if account.username == username
+            ),
+            None,
+        )
+
+        if account is None:
+            logger.error(
+                "未找到 GLaDOS 账号: username=%s",
+                username,
+            )
+            return None
+
+        self._current_account = account
+
+        try:
+            result = self._points()
+            self.session.commit()
+            return result
+        finally:
+            self._current_account = None
+
+    def points_all(self) -> dict[str, GladosPointsResult | None]:
+        """
+        获取所有账号的积分信息。
+
+        Returns:
+            字典，key 为用户名，value 为积分结果（失败为 None）。
+        """
+        results: dict[str, GladosPointsResult | None] = {}
+
+        if not self.glados_config.accounts:
+            logger.warning("没有配置 GLaDOS 账号，跳过获取积分")
+            return results
+
+        for account in self.glados_config.accounts:
+            try:
+                result = self.points(account.username)
+                results[account.username] = result
+            except Exception:
+                logger.exception(
+                    "账号 %s 获取积分异常: ",
+                    account.username,
+                )
+                results[account.username] = None
+
+        self.session.commit()
+        return results
+
+    # ====================================================================
+    # Status (状态)
+    # ====================================================================
+
+    @authenticated
+    def _status(self) -> GladosStatusResult | None:
+        """
+        获取当前 GLaDOS 账号的状态信息。
+
+        当前账号由 `_current_account` 提供。
+        认证由 `authenticated` 装饰器负责。
+
+        Returns:
+            包含状态信息的字典，失败返回 None。
+            字段包括: vip, left_days, traffic, cake_count, etc.
+        """
+        account = self._current_account
+
+        if account is None:
+            raise RuntimeError("当前没有选择 GLaDOS 账号")
+
+        logger.info(
+            "获取 GLaDOS 账号状态: username=%s",
+            account.username,
+        )
+
+        response = self.api.get_status()
+        result = self.parser.parse_status(response)
+
+        if not result.success:
+            logger.warning(
+                "获取 GLaDOS 账号状态失败: username=%s, error=%s",
+                account.username,
+                result.error,
+            )
+            return None
+
+        logger.debug(
+            "获取 GLaDOS 账号状态成功: username=%s, vip=%s, left_days=%.2f, traffic=%d",
+            account.username,
+            result.vip,
+            result.left_days,
+            result.traffic_byte,
+        )
+
+        # 更新数据库
+        db_account = self.account_repository.get_by_username(account.username)
+        if db_account is not None:
+            db_account.left_days = result.left_days
+            self.account_repository.update(db_account)
+
+            self.traffic_history_repository.create(
+                db_account.id,
+                result.traffic_byte,
+                result.total_traffic_byte,
+                result.total_traffic_byte - result.traffic_byte,
+            )
+
+        return result
+
+    def status(
+        self,
+        username: str,
+    ) -> GladosStatusResult | None:
+        """
+        获取指定账号的状态信息。
+        Args:
+            username: 用户名（邮箱）
+        Returns:
+            包含状态信息的字典，失败返回 None。
+        """
+        account = next(
+            (
+                account
+                for account in self.glados_config.accounts
+                if account.username == username
+            ),
+            None,
+        )
+
+        if account is None:
+            logger.error(
+                "未找到 GLaDOS 账号: username=%s",
+                username,
+            )
+            return None
+
+        self._current_account = account
+
+        try:
+            self._get_or_create_db_account(account)
+            result = self._status()
+            self.session.commit()
+            return result
+        finally:
+            self._current_account = None
+
+    def status_all(self) -> dict[str, GladosStatusResult | None]:
+        """
+        获取所有账号的状态信息。
+
+        Returns:
+            字典，key 为用户名，value 为状态结果（失败为 None）。
+        """
+        results: dict[str, GladosStatusResult | None] = {}
+
+        if not self.glados_config.accounts:
+            logger.warning("没有配置 GLaDOS 账号，跳过获取状态")
+            return results
+
+        for account in self.glados_config.accounts:
+            try:
+                result = self.status(account.username)
+                results[account.username] = result
+            except Exception:
+                logger.exception(
+                    "账号 %s 获取状态异常: ",
+                    account.username,
+                )
+                results[account.username] = None
+
+        self.session.commit()
+        return results
+
+    # ====================================================================
+    # Exchange Points (积分兑换)
+    # ====================================================================
+
+    @authenticated
+    def _exchange_points(self, plan_type: str) -> GladosExchangeResult | None:
+        """
+        执行当前 GLaDOS 账号的积分兑换。
+
+        当前账号由 `_current_account` 提供。
+        认证由 `authenticated` 装饰器负责。
+
+        Args:
+            plan_type: 兑换计划类型，支持 "plan500", "plan200", "plan100"
+
+        Returns:
+            GladosExchangeResult 对象，失败返回 None。
+        """
+        account = self._current_account
+
+        if account is None:
+            raise RuntimeError("当前没有选择 GLaDOS 账号")
+
+        logger.info(
+            "开始 GLaDOS 积分兑换: username=%s, plan_type=%s",
+            account.username,
+            plan_type,
+        )
+
+        # 1. 调用 API 执行兑换
+        response = self.api.exchange_points(plan_type)
+        result = self.parser.parse_exchange(response)
+
+        if not result.success:
+            logger.warning(
+                "GLaDOS 积分兑换失败: username=%s, plan_type=%s, error=%s",
+                account.username,
+                plan_type,
+                result.error,
+            )
+            return None
+
+        logger.info(
+            "GLaDOS 积分兑换成功: username=%s, plan_type=%s, message=%s, points_used=%d, days_added=%d, points_remaining=%.2f",
+            account.username,
+            plan_type,
+            result.message,
+            result.points_used,
+            result.days_added,
+            result.points,
+        )
+
+        # 2. 更新数据库
+        db_account = self.account_repository.get_by_username(account.username)
+        if db_account is not None:
+            # 更新积分（剩余积分）
+            db_account.points = result.points
+            db_account.left_days += result.days_added
+            self.account_repository.update(db_account)
+
+        return result
+
+    def exchange_points(
+        self, username: str, plan_type: str = "plan500"
+    ) -> GladosExchangeResult | None:
+        """
+        指定账号执行积分兑换。
+
+        Args:
+            username: 用户名（邮箱）
+            plan_type: 兑换计划类型
+                - "plan500": 500积分兑换30天
+                - "plan200": 200积分兑换7天
+                - "plan100": 100积分兑换3天
+
+        Returns:
+            GladosExchangeResult 对象，失败返回 None。
+        """
+        # 1. 验证 plan_type
+        valid_plans = {"plan500", "plan200", "plan100"}
+        if plan_type not in valid_plans:
+            logger.error(
+                "无效的兑换计划: %s，支持: %s",
+                plan_type,
+                ", ".join(valid_plans),
+            )
+            return None
+
+        # 2. 查找账号
+        account = next(
+            (
+                account
+                for account in self.glados_config.accounts
+                if account.username == username
+            ),
+            None,
+        )
+
+        if account is None:
+            logger.error(
+                "未找到 GLaDOS 账号: username=%s",
+                username,
+            )
+            return None
+
+        self._current_account = account
+
+        try:
+            self._get_or_create_db_account(account)
+            return self._exchange_points(plan_type)
+        finally:
+            self._current_account = None
+
+    def exchange_points_by_rule(
+        self,
+        account_config: GladosAccountConfig,
+    ) -> GladosExchangeResult | None:
+        """
+        根据账号配置的续费规则执行积分兑换。
+
+        Args:
+            account_config: 账号配置对象
+
+        Returns:
+            兑换结果对象，失败或无需续费返回 None。
+        """
+        # 1. 检查是否启用续费
+        if not account_config.renew_enabled:
+            logger.debug(
+                "账号 %s 未启用自动续费，跳过",
+                account_config.username,
+            )
+            return None
+
+        # 2. 检查续费套餐是否有效
+        plan_type = account_config.renew_plan
+        valid_plans = {"plan500", "plan200", "plan100"}
+        if not plan_type or plan_type not in valid_plans:
+            logger.error(
+                "账号 %s 无效的续费套餐: %s，支持: %s",
+                account_config.username,
+                plan_type,
+                ", ".join(valid_plans),
+            )
+            return None
+
+        # 3. 获取账号状态（检查剩余天数）
+        status_result = self.status(account_config.username)
+        if status_result is None:
+            logger.error(
+                "获取账号状态失败: username=%s",
+                account_config.username,
+            )
+            return None
+
+        left_days = status_result.left_days
+        threshold = account_config.renew_threshold
+
+        logger.info(
+            "账号 %s 剩余天数: %.1f 天, 阈值: %d 天",
+            account_config.username,
+            left_days,
+            threshold,
+        )
+
+        # 4. 检查剩余天数是否低于阈值
+        if left_days >= threshold:
+            logger.info(
+                "账号 %s 剩余天数充足 (%.1f >= %d)，无需续费",
+                account_config.username,
+                left_days,
+                threshold,
+            )
+            return None
+
+        logger.info(
+            "账号 %s 剩余天数不足 (%.1f < %d)，触发续费",
+            account_config.username,
+            left_days,
+            threshold,
+        )
+
+        # 5. 获取积分（检查积分是否足够）
+        points_result = self.points(account_config.username)
+        if points_result is None:
+            logger.error(
+                "获取账号积分失败: username=%s",
+                account_config.username,
+            )
+            return None
+
+        # 不同计划所需的积分
+        plan_points_map = {
+            "plan500": 500,
+            "plan200": 200,
+            "plan100": 100,
+        }
+
+        required_points = plan_points_map.get(plan_type, 500)
+        current_points = points_result.points
+
+        logger.info(
+            "账号 %s 当前积分: %.2f, 需要: %d",
+            account_config.username,
+            current_points,
+            required_points,
+        )
+
+        if current_points < required_points:
+            logger.warning(
+                "账号 %s 积分不足: %.2f < %d，跳过续费",
+                account_config.username,
+                current_points,
+                required_points,
+            )
+            return None
+
+        # 6. 执行兑换
+        return self.exchange_points(account_config.username, plan_type)
+
+    def exchange_all_by_rules(self) -> dict[str, GladosExchangeResult | None]:
+        """
+        根据配置的续费规则执行所有账号的积分兑换。
+
+        检查每个账号的 renew_enabled 配置，
+        如果启用且剩余天数低于 renew_threshold，
+        则使用 renew_plan 进行兑换。
+
+        Returns:
+            字典，key 为用户名，value 为兑换结果（失败或无需续费为 None）。
+        """
+        results: dict[str, GladosExchangeResult | None] = {}
+
+        if not self.glados_config.accounts:
+            logger.warning("没有配置 GLaDOS 账号，跳过续费检查")
+            return results
+
+        for account_config in self.glados_config.accounts:
+            try:
+                result = self.exchange_points_by_rule(account_config)
+                results[account_config.username] = result
+            except Exception:
+                logger.exception(
+                    "账号 %s 续费兑换异常: ",
+                    account_config.username,
+                )
+                results[account_config.username] = None
+
+        self.session.commit()
+
+        success_count = sum(1 for r in results.values() if r is not None)
+        logger.info(
+            "续费兑换完成，共处理 %d 个账号，成功 %d 笔交易",
+            len(results),
+            success_count,
+        )
+
+        return results
+
+    def build_report_html(self) -> str:
+        """构建 GLaDOS HTML 运行报告。"""
+
+        # ============================================================
+        # 1. 应用报告配置
+        # ============================================================
+
+        app = AppConfig(
+            name="GLaDOS",
+            icon="🤖",
+            gradient_start="#667eea",
+            gradient_end="#764ba2",
+        )
+
+        accounts: list[AccountInfo] = []
+        checkin: list[CheckinResult] = []
+
+        account_configs = self.glados_config.accounts
+
+        if not account_configs:
+            logger.warning("没有配置 GLaDOS 账号，跳过报告统计")
+        else:
+            # ========================================================
+            # 2. 获取账号报告数据
+            #
+            # 一个账号只查询一次，后续同时构建：
+            #   AccountInfo
+            #   CheckinResult
+            # ========================================================
+
+            for account_config in account_configs:
+                username = account_config.username
+
+                try:
+                    account = self.account_repository.get_by_username(username)
+
+                    if account is None:
+                        logger.warning(
+                            "账号 %s 不存在，跳过报告统计",
+                            username,
+                        )
+                        continue
+
+                    # ------------------------------------------------
+                    # 账户流量信息
+                    # ------------------------------------------------
+
+                    traffic = self.traffic_history_repository.get_latest_by_account_id(
+                        account.id
+                    )
+
+                    if traffic is not None:
+                        total_traffic = traffic.total_traffic_bytes
+                        used_traffic = traffic.used_traffic_bytes
+
+                        if total_traffic > 0:
+                            use_percent = used_traffic / total_traffic * 100
+                        else:
+                            use_percent = 0.0
+
+                        accounts.append(
+                            AccountInfo(
+                                username=account.username,
+                                points=account.points,
+                                left_days=account.left_days,
+                                current_traffic=used_traffic,
+                                total_traffic=total_traffic,
+                                use_percent=use_percent,
+                                continuous_checkin_days=account.streak_days,
+                                total_checkin_days=account.total_days,
+                            )
+                        )
+
+                    # ------------------------------------------------
+                    # 最近一次签到
+                    # ------------------------------------------------
+
+                    checkin_log = self.checkin_log_repository.get_latest_by_account_id(
+                        account.id
+                    )
+
+                    if checkin_log is not None:
+                        checkin.append(
+                            CheckinResult(
+                                username=account.username,
+                                success=checkin_log.success,
+                                point=checkin_log.points,
+                                created_at=checkin_log.checkin_at,
+                            )
+                        )
+
+                except Exception:
+                    logger.exception(
+                        "账号 %s 统计报告信息异常",
+                        username,
+                    )
+
+        # ============================================================
+        # 3. 创建报告 DTO
+        # ============================================================
+
+        report_data = ReportData(
+            app=app,
+            accounts=accounts,
+            checkin=checkin,
+        )
+
+        # ============================================================
+        # 4. 构建 Section
+        # ============================================================
+
+        sections = SectionBuilder.build(report_data)
+
+        # ============================================================
+        # 5. 使用通用 Renderer 生成完整 HTML
+        # ============================================================
+
+        renderer = ReportRenderer(
+            app_name=app.name,
+            app_icon=app.icon,
+            gradient_start=app.gradient_start,
+            gradient_end=app.gradient_end,
+        )
+
+        return renderer.render(sections)
