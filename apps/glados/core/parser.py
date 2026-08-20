@@ -1,3 +1,5 @@
+# apps\glados\core\parser.py
+
 """
 Glados API Response Parser
 

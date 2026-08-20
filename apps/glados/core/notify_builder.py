@@ -1,6 +1,6 @@
-"""
-modules/core/notify/builder.py
+# apps\glados\core\notify_builder.py
 
+"""
 通知报告 Section 构建器。
 
 职责：

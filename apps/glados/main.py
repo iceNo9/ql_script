@@ -1,4 +1,5 @@
-# tasks/task_glados.py
+# apps\glados\main.py
+
 import sys
 
 from apps.glados.core.config import load_glados_config

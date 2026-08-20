@@ -1,4 +1,4 @@
-# modules/glados/core/email.py
+# apps\glados\core\email.py
 
 import re
 import time

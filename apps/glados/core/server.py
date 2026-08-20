@@ -1,4 +1,5 @@
-# modules/glados/core/glados.py
+# apps\glados\core\server.py
+
 import ast
 import json
 from collections.abc import Callable

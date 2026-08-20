@@ -1,6 +1,6 @@
-"""
-modules/core/notify/dto.py
+# apps\glados\core\notify_dto.py
 
+"""
 通知报告 DTO。
 
 职责：

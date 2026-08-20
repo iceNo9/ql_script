@@ -1,3 +1,5 @@
+# apps\glados\core\models.py
+
 """
 GLaDOS 数据库实体定义。
 
@@ -152,7 +154,7 @@ class CheckinLog(Base):
         default=0,
         nullable=False,
     )
-    
+
     message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,

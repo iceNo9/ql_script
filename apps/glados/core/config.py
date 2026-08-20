@@ -1,3 +1,5 @@
+# apps\glados\core\config.py
+
 """
 GLaDOS 应用配置模块。
 
