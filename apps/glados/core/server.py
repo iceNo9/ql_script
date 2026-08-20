@@ -2,9 +2,7 @@
 import ast
 import json
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any, TypeVar
-from zoneinfo import ZoneInfo
 
 from apps.glados.core.api import (
     GladosAPI,
@@ -42,12 +40,12 @@ from utils.log import get_logger
 from utils.paths import logs
 from utils.renderer import ReportRenderer
 from utils.request_client import RequestClient
+from utils.timezone import now_local, utc_to_local
 
 logger = get_logger(name="glados_server", log_dir=logs(), fmt_type="detailed")
 from functools import wraps
 
 T = TypeVar("T")
-APP_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 def authenticated(func: Callable[..., T]) -> Callable[..., T]:
@@ -464,66 +462,70 @@ class GladosClient:
         db_account = self.account_repository.get_by_username(account.username)
 
         # 获取当前本地时间
-        now_local = datetime.now(APP_TIMEZONE)
+        current_local = now_local()
 
         # 检查是否已签到（防止重复签到）
         if db_account.last_checkin_at is not None:
             # 数据库存储的是UTC时间，直接转换
             last_checkin_utc = db_account.last_checkin_at
-            last_checkin_local = last_checkin_utc.astimezone(APP_TIMEZONE)
+            last_checkin_local = utc_to_local(last_checkin_utc)
 
-            # 详细日志
-            logger.info(f"""
-            ========== 签到时间检查 ==========
-            当前本地时间: {now_local.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Shanghai)
-            上次签到UTC时间: {last_checkin_utc.strftime('%Y-%m-%d %H:%M:%S')} (UTC)
-            上次签到本地时间: {last_checkin_local.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Shanghai)
-            上次签到本地日期: {last_checkin_local.date()}
-            当前本地日期: {now_local.date()}
-            是否为同一天: {last_checkin_local.date() == now_local.date()}
-            ==================================
-            """)
-
-            if last_checkin_local.date() == now_local.date():
-                logger.info("账号今日已签到（本地时间 Asia/Shanghai），跳过")
-                return
+            if last_checkin_local.date() == current_local.date():
+                logger.info("账号今日已签到（本地时间 Asia/Shanghai），返回已签到结果")
+                # 返回已签到结果，而不是直接 return
+                return GladosCheckinResult(
+                    success=True,
+                )
             else:
                 logger.info("账号今日未签到（本地时间 Asia/Shanghai），继续执行")
         else:
             logger.info("账号从未签到过，首次签到")
 
+        # ================================================================
         # 执行签到
+        # ================================================================
+
         response = self.api.checkin()
         result = self.parser.parse_checkin(response)
 
         # ================================================================
-        # 日志
+        # 处理签到结果
         # ================================================================
 
         if result.success:
             if result.already_checked:
+                # 情况1：接口返回已签到（可能用户在web端手动签到了）
                 logger.info(
-                    "GLaDOS 今日已签到: username=%s, points=%d, streak=%d",
+                    "GLaDOS 今日已签到（同步数据）: username=%s, points=%d, streak=%d",
                     account.username,
                     result.points,
                     result.streak,
                 )
+                # 同步数据：更新签到时间，但不增加积分
+                # 注意：result.points 是用户当前总积分，不是本次增加的量
             else:
+                # 情况2：签到成功，本次获得了新积分
                 logger.info(
                     "GLaDOS 签到成功: username=%s, points=%d, streak=%d",
                     account.username,
                     result.points,
                     result.streak,
                 )
+                # 增加积分（只有真正签到成功才增加）
+                db_account.points += result.points
         else:
+            # 情况3：签到失败
             logger.warning(
                 "GLaDOS 签到失败: username=%s, error=%s",
                 account.username,
                 result.error,
             )
 
-        # 数据库更新
+        # ================================================================
+        # 数据库更新（统一处理）
+        # ================================================================
 
+        # 更新签到结果（记录本次签到尝试）
         self.account_repository.update_checkin_result(
             account_id=db_account.id,
             success=result.success,
@@ -531,14 +533,20 @@ class GladosClient:
             error=result.error,
         )
 
-        db_account.points += result.points
-        self.account_repository.update(db_account)
+        # 只有签到成功时更新积分（已在上面处理）
+        # 注意：如果 already_checked=True，result.points 是当前总积分，不应累加
+        if result.success and not result.already_checked:
+            # 积分已在上面累加，这里保存
+            self.account_repository.update(db_account)
 
+        # 创建签到日志（记录每次签到尝试）
         self.checkin_log_repository.create(
             account_id=db_account.id,
             success=result.success,
             message=result.message if result.success else result.error,
-            points=result.points,
+            points=(
+                result.points if result.success and not result.already_checked else 0
+            ),
         )
 
         self.session.commit()

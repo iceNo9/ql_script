@@ -17,6 +17,7 @@
 - 定义具体应用的配置 Model
 - 处理应用业务逻辑
 - 校验应用自身的业务配置
+- 时区相关操作（已移至 utils.timezone）
 
 目录结构：
 
@@ -37,7 +38,8 @@ project/
 └── utils/
     ├── paths.py
     ├── log.py
-    └── config.py
+    ├── config.py
+    └── timezone.py
 """
 
 from dataclasses import dataclass, field
@@ -103,6 +105,13 @@ class DatabaseConfig:
 
 
 @dataclass
+class TimezoneConfig:
+    """全局时区配置。"""
+
+    timezone: str = "Asia/Shanghai"
+
+
+@dataclass
 class GlobalConfig:
     """
     全局配置。
@@ -112,6 +121,7 @@ class GlobalConfig:
 
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    timezone: TimezoneConfig = field(default_factory=TimezoneConfig)
 
 
 # ============================================================================
@@ -138,6 +148,9 @@ def _create_default_global_config() -> CommentedMap:
           username: ""
           password: ""
 
+        timezone:
+          timezone: "Asia/Shanghai"
+
     同时在文件顶部生成完整的配置注释。
 
     Returns:
@@ -150,27 +163,26 @@ def _create_default_global_config() -> CommentedMap:
     # 文件顶部说明
     # ------------------------------------------------------------------------
 
-    config.yaml_set_start_comment(
-        "\n".join(
-            [
-                "全局配置文件。",
-                "",
-                "本文件由程序首次启动时自动生成。",
-                "",
-                "该配置适用于所有应用，提供公共配置项。",
-                "",
-                "代理配置：",
-                "  - 支持 HTTP/HTTPS 代理",
-                "  - 支持 no_proxy 白名单",
-                "",
-                "数据库配置：",
-                "  - 支持 PostgreSQL 数据库连接",
-                "  - 默认使用本地 5432 端口",
-                "",
-                "请根据实际需要修改配置。",
-            ]
-        )
-    )
+    config.yaml_set_start_comment("""全局配置文件。
+
+本文件由程序首次启动时自动生成。
+
+该配置适用于所有应用，提供公共配置项。
+
+代理配置：
+- 支持 HTTP/HTTPS 代理
+- 支持 no_proxy 白名单
+
+数据库配置：
+- 支持 PostgreSQL 数据库连接
+- 默认使用本地 5432 端口
+
+时区配置：
+- 设置应用使用的时区
+- 支持 IANA 时区数据库格式
+- 数据库统一使用 UTC 时间存储
+
+请根据实际需要修改配置。""")
 
     # ------------------------------------------------------------------------
     # 代理配置
@@ -274,6 +286,35 @@ def _create_default_global_config() -> CommentedMap:
         ),
     )
 
+    # ------------------------------------------------------------------------
+    # 时区配置
+    # ------------------------------------------------------------------------
+
+    config["timezone"] = CommentedMap()
+
+    config.yaml_set_comment_before_after_key(
+        "timezone",
+        before="时区配置。",
+    )
+
+    timezone = config["timezone"]
+
+    timezone["timezone"] = "Asia/Shanghai"
+    timezone.yaml_set_comment_before_after_key(
+        "timezone",
+        before=(
+            "应用使用的时区。\n\n"
+            "使用 IANA 时区数据库格式。\n\n"
+            "常用时区：\n"
+            '  - "Asia/Shanghai" (中国标准时间)\n'
+            '  - "Asia/Tokyo" (日本标准时间)\n'
+            '  - "America/New_York" (美国东部时间)\n'
+            '  - "Europe/London" (英国时间)\n'
+            '  - "UTC" (协调世界时)\n\n'
+            "注意：数据库统一使用 UTC 时间存储。"
+        ),
+    )
+
     return config
 
 
@@ -351,10 +392,10 @@ def load_config(name: str) -> dict[str, Any]:
     """
     path = get_config_path(name)
 
-    logger.debug("加载配置文件: %s", path)
+    logger.debug(f"加载配置文件: {path}")
 
     if not path.is_file():
-        logger.error("配置文件不存在: %s", path)
+        logger.error(f"配置文件不存在: {path}")
         raise FileNotFoundError(f"配置文件不存在: {path}")
 
     try:
@@ -362,23 +403,20 @@ def load_config(name: str) -> dict[str, Any]:
             data = _yaml.load(file)
 
     except Exception:
-        logger.exception("读取配置文件失败: %s", path)
+        logger.exception(f"读取配置文件失败: {path}")
         raise
 
     # YAML 文件为空
     if data is None:
-        logger.warning("配置文件为空: %s", path)
+        logger.warning(f"配置文件为空: {path}")
         return {}
 
     # YAML 根节点必须是字典
     if not isinstance(data, dict):
-        logger.error(
-            "配置文件根节点必须是字典: %s",
-            path,
-        )
+        logger.error(f"配置文件根节点必须是字典: {path}")
         raise TypeError(f"配置文件根节点必须是字典: {path}")
 
-    logger.debug("配置文件加载成功: %s", path)
+    logger.debug(f"配置文件加载成功: {path}")
 
     return dict(data)
 
@@ -433,7 +471,7 @@ def save_config(
 
     path = get_config_path(name)
 
-    logger.debug("保存配置文件: %s", path)
+    logger.debug(f"保存配置文件: {path}")
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -442,15 +480,25 @@ def save_config(
             _yaml_writer.dump(data, file)
 
     except Exception:
-        logger.exception("保存配置文件失败: %s", path)
+        logger.exception(f"保存配置文件失败: {path}")
         raise
 
-    logger.debug("配置文件保存成功: %s", path)
+    logger.debug(f"配置文件保存成功: {path}")
 
 
 # ============================================================================
 # 全局配置
 # ============================================================================
+
+# 全局配置实例（模块加载时初始化）
+_global_config: GlobalConfig | None = None
+
+
+def _init_global_config() -> None:
+    """初始化全局配置。内部函数，模块加载时自动调用。"""
+    global _global_config
+    _global_config = load_global_config()
+    logger.info("全局配置初始化完成")
 
 
 def load_global_config() -> GlobalConfig:
@@ -477,27 +525,40 @@ def load_global_config() -> GlobalConfig:
 
     # 配置文件不存在，创建默认模板
     if not path.is_file():
-        logger.warning("全局配置文件不存在，创建配置模板: %s", path)
+        logger.warning(f"全局配置文件不存在，创建配置模板: {path}")
 
         data = _create_default_global_config()
         save_config("global", data)
 
-        logger.info("全局配置模板已创建: %s", path)
+        logger.info(f"全局配置模板已创建: {path}")
         return GlobalConfig()
 
     data = load_config("global")
 
     if not data:
-        logger.warning(
-            "全局配置文件为空，使用默认配置: %s",
-            path,
-        )
+        logger.warning(f"全局配置文件为空，使用默认配置: {path}")
         return GlobalConfig()
 
     return GlobalConfig(
         proxy=ProxyConfig(**data.get("proxy", {})),
         database=DatabaseConfig(**data.get("database", {})),
+        timezone=TimezoneConfig(**data.get("timezone", {})),
     )
+
+
+def get_global_config() -> GlobalConfig:
+    """
+    获取全局配置实例。
+
+    如果配置未初始化，则自动加载。
+
+    Returns:
+        GlobalConfig: 全局配置对象。
+    """
+    if _global_config is None:
+        _init_global_config()
+
+    return _global_config
 
 
 # ============================================================================
@@ -528,6 +589,14 @@ def config_exists(name: str) -> bool:
 
 
 # ============================================================================
+# 模块加载时自动初始化
+# ============================================================================
+
+# 自动初始化全局配置
+_init_global_config()
+
+
+# ============================================================================
 # 导出
 # ============================================================================
 
@@ -535,8 +604,10 @@ __all__ = [
     "DatabaseConfig",
     "GlobalConfig",
     "ProxyConfig",
+    "TimezoneConfig",
     "config_exists",
     "get_config_path",
+    "get_global_config",
     "load_config",
     "load_global_config",
     "save_config",

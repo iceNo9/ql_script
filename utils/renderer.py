@@ -21,12 +21,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from utils.paths import templates
-
-# 报告展示时区：北京时间（UTC+8）
-DISPLAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
+from utils.timezone import format_local_time
 
 
 class ReportRenderer:
@@ -62,7 +59,7 @@ class ReportRenderer:
         current_time = current_time or datetime.now(UTC)
 
         # 转换为北京时间，仅用于报告展示。
-        display_time = current_time.astimezone(DISPLAY_TIMEZONE)
+        display_time = format_local_time(current_time)
 
         section_html = "".join(section for section in sections if section)
 
@@ -74,7 +71,7 @@ class ReportRenderer:
             "{{app_icon}}": self.app_icon,
             "{{gradient_start}}": self.gradient_start,
             "{{gradient_end}}": self.gradient_end,
-            "{{current_time}}": display_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "{{current_time}}": display_time,
             "{{report_id}}": report_id,
             "{{sections}}": section_html,
         }

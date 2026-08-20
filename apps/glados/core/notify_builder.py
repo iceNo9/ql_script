@@ -28,6 +28,7 @@ from apps.glados.core.notify_dto import (
     RedeemResult,
     ReportData,
 )
+from utils.timezone import format_local_time
 
 
 class SectionBuilder:
@@ -114,7 +115,7 @@ class SectionBuilder:
         if result.created_at is None:
             return "-"
 
-        return result.created_at.strftime("%H:%M:%S")
+        return format_local_time(result.created_at)
 
     # ============================================================
     # Account
