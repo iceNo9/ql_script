@@ -1,0 +1,250 @@
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
+from urllib.parse import urljoin
+
+import requests
+
+from utils.log import get_logger
+from utils.paths import logs
+from utils.request_client import RequestClient
+
+logger = get_logger(name="baiyefee_api", log_dir=logs(), fmt_type="detailed")
+
+
+class BaiyefeeEndpoints:
+    """Baiyefee API 端点配置"""
+
+    BASE_URL = "https://www.baiyefee.com"
+
+    JSON_LOGIN = "/wp-json/jwt-auth/v1/token"
+
+    JSON_USER_DATA = "/wp-json/b2/v1/getUserGoldData"
+    JSON_SIGN = "/wp-json/b2/v1/userMission"
+    JSON_SIGN_INFO = "/wp-json/b2/v1/getUserMission"
+
+
+class BaiyefeeAPIError(Exception):
+    """Baiyefee API 请求异常。"""
+
+    def __init__(
+        self,
+        status_code: int,
+        message: str | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.message = message
+
+        super().__init__(message or f"HTTP {status_code}")
+
+
+def handle_response(
+    func: Callable[..., requests.Response],
+) -> Callable[..., requests.Response]:
+    """
+    统一处理 API 请求结果。
+
+    正常响应（HTTP 2xx）：
+        返回 requests.Response。
+
+    HTTP 非 2xx 响应：
+        记录详细日志。
+        抛出 BaiyefeeAPIError，并携带 HTTP 状态码。
+
+    HTTP 请求异常：
+        记录异常日志。
+        抛出 BaiyefeeAPIError，并保留原始异常作为异常链。
+
+    其他未预期异常：
+        记录异常日志。
+        原异常继续向上抛出，不进行吞掉或转换。
+
+    注意：
+        本装饰器不再返回 None。
+        调用方只有两种正常情况：
+        1. 获取到有效的 requests.Response。
+        2. 发生异常。
+
+        这样上层认证逻辑可以通过捕获 BaiyefeeAPIError，
+        判断当前认证方式失败并尝试下一级认证。
+
+    Args:
+        func:
+            实际执行 HTTP 请求的 API 方法。
+
+    Returns:
+        包装后的 API 请求方法。
+
+    Raises:
+        BaiyefeeAPIError:
+            HTTP 非 2xx 响应或 HTTP 请求异常。
+        Exception:
+            其他未预期异常原样向上抛出。
+    """
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> requests.Response:
+        try:
+            response = func(*args, **kwargs)
+
+            # HTTP 2xx：请求成功
+            if response.ok:
+                return response
+
+            # HTTP 非 2xx：记录完整响应信息
+            logger.error(
+                "API 请求失败: %s\n"
+                "状态码: %s\n"
+                "原因: %s\n"
+                "响应头: %s\n"
+                "响应内容: %s",
+                func.__name__,
+                response.status_code,
+                response.reason,
+                dict(response.headers),
+                response.text,
+            )
+
+            raise BaiyefeeAPIError(
+                status_code=response.status_code,
+                message=response.reason,
+            )
+
+        except requests.RequestException as exc:
+            # HTTP 请求本身发生异常，例如：
+            # - 连接失败
+            # - 连接超时
+            # - DNS 解析失败
+            # - SSL 错误
+            logger.exception(
+                "API 请求异常: %s",
+                func.__name__,
+            )
+
+            raise BaiyefeeAPIError(
+                status_code=0,
+                message=str(exc),
+            ) from exc
+
+        except BaiyefeeAPIError:
+            # 已经转换成统一的 Baiyefee API 异常，
+            # 直接继续向上抛出，避免重复处理。
+            raise
+
+        except Exception:
+            # 其他未预期异常不进行转换，
+            # 保留原始异常类型和 traceback，方便定位代码问题。
+            logger.exception(
+                "API 请求发生未预期异常: %s",
+                func.__name__,
+            )
+            raise
+
+    return wrapper
+
+
+class BaiyefeeAPI:
+    """纯 API 调用层，只负责发送 HTTP 请求"""
+
+    def __init__(self, request_client: RequestClient):
+        self.client = request_client
+        self.base_url = BaiyefeeEndpoints.BASE_URL
+        self._token = ""
+
+    def _url(self, endpoint: str) -> str:
+        """构建完整 URL"""
+        return urljoin(self.base_url, endpoint)
+
+    def _ensure_json_mode(self):
+        """确保是 JSON 请求模式"""
+        # 如果当前不是 JSON 模式，切换
+        headers = self.client.get_headers()
+        if "Accept" in headers and "text/html" in headers["Accept"]:
+            self.client.set_json_mode()
+
+    def set_token(self, token: str):
+        """设置认证令牌"""
+        self._token = token
+        if token:
+            # 添加 Bearer 前缀
+            self.client.update_headers({"Authorization": f"Bearer {token}"})
+        else:
+            self.client.remove_headers(["Authorization"])
+
+    # ==================== 认证相关 API ====================
+
+    @handle_response
+    def login(self, username: str, passwd: str) -> requests.Response:
+        """
+        用户名密码登录
+
+        Args:
+            username: 用户名
+            passwd: 密码
+
+        Returns:
+            API 原始响应
+        """
+        url = self._url(BaiyefeeEndpoints.JSON_LOGIN)
+        payload = {
+            "username": username,
+            "password": passwd,
+        }
+
+        self.client.update_headers({"Origin": self.base_url})
+
+        logger.debug(f"登录: {username}")
+        response = self.client.post(url, json=payload)
+        return response
+
+    # ==================== 用户操作 API ====================
+
+    @handle_response
+    def checkin(self) -> requests.Response:
+        """签到"""
+        url = self._url(BaiyefeeEndpoints.JSON_SIGN)
+
+        self._ensure_json_mode()
+        response = self.client.post(url)
+        return response
+
+    @handle_response
+    def get_user_data(self) -> requests.Response:
+        """获取用户状态"""
+        url = self._url(BaiyefeeEndpoints.JSON_USER_DATA)
+
+        self.client.update_headers({"Origin": self.base_url})
+        self._ensure_json_mode()
+        response = self.client.post(url)
+        return response
+
+    @handle_response
+    def get_sign_info(self) -> requests.Response:
+        """获取签到信息"""
+        url = self._url(BaiyefeeEndpoints.JSON_SIGN_INFO)
+
+        self._ensure_json_mode()
+        response = self.client.post(url)
+        return response
+
+    # ==================== Cookies 透传 ====================
+
+    def get_cookies(self) -> dict[str, str]:
+        """获取当前 cookies"""
+        return self.client.get_cookies_dict()
+
+    def set_cookies(self, cookies: dict[str, str]):
+        """设置 cookies"""
+        self.client.set_cookies(cookies)
+
+    def clear_cookies(self):
+        """清空 cookies"""
+        self.client.clear_cookies()
+
+
+__all__ = [
+    "BaiyefeeAPI",
+    "BaiyefeeAPIError",
+    "BaiyefeeEndpoints",
+    "handle_response",
+]

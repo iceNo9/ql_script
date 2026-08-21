@@ -584,19 +584,25 @@ def _get_response_detail(response: requests.Response) -> str:
 
 def _log_parse_failure(response: requests.Response, error: str | None = None) -> None:
     """记录 API Response 解析失败的详细信息。"""
-
+    
     error_msg = f"错误类型: 响应结构解析失败{f': {error}' if error else ''}"
-    logger.error(
-        "=" * 80 + "\n"
-        "Glados API 响应解析失败，响应规则可能已发生变化。\n"
-        "请检查以下完整响应信息以调整解析规则：\n"
-        "-" * 80 + "\n"
-        "%s\n"
-        "-" * 80 + "\n"
-        "%s",
-        _get_response_detail(response),
-        error_msg,
+    
+    # 构建响应详情
+    response_detail = _get_response_detail(response)
+    
+    # 使用 f-string 构建完整消息，避免 logger 的格式化处理
+    log_message = (
+        f"\n{'=' * 80}\n"
+        f"Baiyefee API 响应解析失败，响应规则可能已发生变化。\n"
+        f"请检查以下完整响应信息以调整解析规则：\n"
+        f"{'-' * 80}\n"
+        f"{response_detail}\n"
+        f"{'-' * 80}\n"
+        f"{error_msg}\n"
+        f"{'=' * 80}"
     )
+    
+    logger.error(log_message)
 
 
 # ============================================================

@@ -6,6 +6,7 @@
     - 提供数据库时区对象（UTC）
     - 提供时间转换函数（UTC ↔ 本地时间）
     - 提供当前时间获取函数（本地/UTC）
+    - 提供字符串时间解析函数
 
 依赖：
     - utils.config: 获取全局配置中的时区设置
@@ -140,6 +141,67 @@ def format_local_time(utc_dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 
 # ============================================================================
+# 字符串时间解析
+# ============================================================================
+
+
+def parse_local_datetime(
+    dt_str: str,
+    fmt: str = "%Y-%m-%d %H:%M:%S",
+) -> datetime | None:
+    """
+    将字符串解析为带本地时区的 datetime。
+
+    Args:
+        dt_str: 日期时间字符串。
+        fmt: 时间格式，默认为 "%Y-%m-%d %H:%M:%S"。
+
+    Returns:
+        datetime | None: 带本地时区的 datetime，解析失败返回 None。
+
+    Examples:
+        >>> from utils.timezone import parse_local_datetime
+        >>> parse_local_datetime("2026-08-20 14:30:00")
+        datetime.datetime(2026, 8, 20, 14, 30, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+        >>> parse_local_datetime("2026-08-20")  # 日期格式不匹配
+        None
+    """
+    if not dt_str:
+        return None
+
+    try:
+        # 解析字符串为 naive datetime
+        naive_dt = datetime.strptime(dt_str, fmt) # noqa: DTZ007
+        # 添加本地时区
+        return naive_dt.replace(tzinfo=get_app_timezone())
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_local_date(
+    dt_str: str,
+    fmt: str = "%Y-%m-%d",
+) -> datetime | None:
+    """
+    将日期字符串解析为带本地时区的 datetime（时间部分为 00:00:00）。
+
+    Args:
+        dt_str: 日期字符串。
+        fmt: 日期格式，默认为 "%Y-%m-%d"。
+
+    Returns:
+        datetime | None: 带本地时区的 datetime，解析失败返回 None。
+
+    Examples:
+        >>> from utils.timezone import parse_local_date
+        >>> parse_local_date("2026-08-20")
+        datetime.datetime(2026, 8, 20, 0, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    """
+    return parse_local_datetime(dt_str, fmt)
+
+
+# ============================================================================
 # 导出
 # ============================================================================
 
@@ -150,5 +212,7 @@ __all__ = [
     "local_to_utc",
     "now_local",
     "now_utc",
+    "parse_local_date",
+    "parse_local_datetime",
     "utc_to_local",
 ]

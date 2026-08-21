@@ -465,10 +465,12 @@ class GladosClient:
         # 获取当前本地时间
         current_local = now_local()
 
+        # 获取数据库上次签到时间 utc
+        last_checkin_utc = db_account.last_checkin_at
+
         # 检查是否已签到（防止重复签到）
-        if db_account.last_checkin_at is not None:
+        if last_checkin_utc is not None:
             # 数据库存储的是UTC时间，直接转换
-            last_checkin_utc = db_account.last_checkin_at
             last_checkin_local = utc_to_local(last_checkin_utc)
 
             if last_checkin_local.date() == current_local.date():
