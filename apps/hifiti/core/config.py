@@ -1,103 +1,218 @@
-# modules/hifiti/core/config.py
+# apps\hifiti\core\config.py
 
-from pathlib import Path
-from typing import List, Optional
-from pydantic import BaseModel, Field
-from ruamel.yaml import YAML
+"""
+Hifiti 应用配置模块。
 
-from utils.log import get_logger
+负责：
 
-logger = get_logger(__name__)
+- 定义 Hifiti 应用配置 Model
+- 定义单个 Hifiti 账号配置 Model
+- 从全局配置模块加载 config/hifiti.yaml
+- 初始化 Hifiti 加密密钥
+- 首次运行时创建 Hifiti 配置模板
 
-# ----------------------
-# 配置宏定义
-# ----------------------
-CONFIG_ROOT_KEY = "hifiti"           # YAML 根节点名称
+不负责：
+
+- Hifiti 业务逻辑
+- 账号登录
+- Cookie 获取与刷新
+"""
+
+from dataclasses import dataclass, field
+
+from ruamel.yaml.comments import CommentedMap
+
+from utils.config import config_exists, load_config, save_config
+from utils.crypto import generate_key
+
+# ============================================================================
+# 配置 Model
+# ============================================================================
 
 
-# ----------------------
-# Pydantic Schema
-# ----------------------
-class Account(BaseModel):
-    """账号配置"""
-    username: str = Field(..., description="账号用户名（主键）")
-    password: str = Field(..., description="账号密码")
+@dataclass
+class HifitiAccountConfig:
+    """
+    单个 Hifiti 账号配置。
+
+    一个账号对应一个用户名。
+    """
+
+    username: str
+    passwd: str
+    cookies: str = ""  # 改为 str，存储 cookie 字符串
 
 
-class ConfigModel(BaseModel):
-    """配置模型"""
-    accounts: List[Account] = Field(
-        default_factory=list,
-        description="账号列表"
+@dataclass
+class HifitiConfig:
+    """
+    Hifiti 应用配置。
+
+    一个 Hifiti 应用可以配置多个账号。
+    """
+
+    encryption_key: str
+    accounts: list[HifitiAccountConfig] = field(default_factory=list)
+
+
+# ============================================================================
+# 默认配置模板
+# ============================================================================
+
+
+def _create_default_config() -> CommentedMap:
+    """
+    创建 Hifiti 默认配置模板。
+
+    首次运行时生成：
+
+        encryption_key: <自动生成的密钥>
+        accounts: []
+
+    同时在文件顶部生成完整的账号配置模板注释。
+
+    Returns:
+        CommentedMap:
+            Hifiti 默认配置。
+    """
+    config = CommentedMap()
+
+    # ------------------------------------------------------------------------
+    # 文件顶部说明
+    # ------------------------------------------------------------------------
+
+    config.yaml_set_start_comment("""
+    Hifiti 应用配置。
+
+    本文件由程序首次启动时自动生成。
+
+    账号配置模板：
+
+    accounts:
+      - username: ""
+        passwd: ""
+        cookies: ""   # 登录成功后自动保存，无需手动填写
+
+    请将账号模板复制到 accounts 列表中。
+    """.strip())
+
+    # ------------------------------------------------------------------------
+    # 加密密钥
+    # ------------------------------------------------------------------------
+
+    config["encryption_key"] = generate_key()
+
+    config.yaml_set_comment_before_after_key(
+        "encryption_key",
+        before=(
+            "Hifiti 应用加密密钥。\n"
+            "\n"
+            "该密钥由程序首次启动时自动生成。\n"
+            "请勿修改，否则已保存的 Cookies 将无法解密。"
+        ),
+    )
+
+    # ------------------------------------------------------------------------
+    # 账号列表
+    # ------------------------------------------------------------------------
+
+    config["accounts"] = []
+
+    config.yaml_set_comment_before_after_key(
+        "accounts",
+        before=(
+            "Hifiti 账号列表。\n"
+            "\n"
+            "可以配置多个账号。\n"
+            "复制上面的账号模板到 accounts: 下方即可。\n"
+            "\n"
+            "cookies 字段在登录成功后自动保存，格式为：\n"
+            "  bbs_sid=xxx; server_name_session=xxx; bbs_token=xxx\n"
+            "\n"
+            "如需手动导入，可从浏览器开发者工具复制。"
+        ),
+    )
+
+    return config
+
+
+# ============================================================================
+# 配置加载
+# ============================================================================
+
+
+def load_hifiti_config() -> HifitiConfig | None:
+    """
+    加载 Hifiti 应用配置。
+
+    对应：
+
+        config/hifiti.yaml
+
+    如果配置文件不存在：
+
+    1. 自动生成加密密钥。
+    2. 创建带完整中文注释的配置模板。
+    3. 保存到 config/hifiti.yaml。
+    4. 返回 None。
+
+    返回 None 表示：
+
+        Hifiti 配置文件刚刚初始化，
+        当前还没有正式加载应用配置。
+
+    如果配置文件已经存在，则正常加载并返回 HifitiConfig。
+
+    Returns:
+        HifitiConfig | None:
+            配置加载成功返回 HifitiConfig。
+            首次初始化配置文件返回 None。
+    """
+
+    # ------------------------------------------------------------------------
+    # 首次运行
+    # ------------------------------------------------------------------------
+
+    if not config_exists("hifiti"):
+        data = _create_default_config()
+
+        save_config("hifiti", data)
+
+        return None
+
+    # ------------------------------------------------------------------------
+    # 正常加载
+    # ------------------------------------------------------------------------
+
+    data = load_config("hifiti")
+
+    encryption_key = data.get("encryption_key")
+
+    # 如果旧配置没有 encryption_key，
+    # 自动生成并持久化。
+    if not encryption_key:
+        encryption_key = generate_key()
+        data["encryption_key"] = encryption_key
+
+        save_config("hifiti", data)
+
+    accounts = []
+
+    for account in data.get("accounts", []):
+        account = dict(account)
+        # 确保 cookies 字段存在，兼容旧配置
+        if "cookies" not in account:
+            account["cookies"] = ""
+        accounts.append(HifitiAccountConfig(**account))
+
+    return HifitiConfig(
+        encryption_key=encryption_key,
+        accounts=accounts,
     )
 
 
-# ----------------------
-# 配置管理类
-# ----------------------
-class ConfigManager:
-    def __init__(self, path: str):
-        self.path = Path(path)
-        self.config: ConfigModel | None = None
-        self._yaml = YAML()
-        self._yaml.preserve_quotes = True
-        self._yaml.indent(mapping=2, sequence=4, offset=2)
-        self._yaml_data = {}
-
-    def read(self) -> Optional[ConfigModel]:
-        """加载 YAML 并验证"""
-        if self.path.exists():
-            with open(self.path, "r", encoding="utf-8") as f:
-                self._yaml_data = self._yaml.load(f) or {}
-        else:
-            logger.error(f"配置文件缺失 {self.path}，强制结束运行")
-            return None
-
-        self.config = ConfigModel(**self._yaml_data.get(CONFIG_ROOT_KEY, {}))
-        return self.config
-
-    def save(self):
-        """写回 YAML，保留原格式"""
-        if self.config is None:
-            raise ValueError("Config is not loaded")
-        self._yaml_data[CONFIG_ROOT_KEY] = self.config.model_dump()
-        with open(self.path, "w", encoding="utf-8") as f:
-            self._yaml.dump(self._yaml_data, f)
-
-    def get_account_by_username(self, username: str) -> Optional[Account]:
-        """根据用户名获取账号配置"""
-        if self.config is None:
-            return None
-        for account in self.config.accounts:
-            if account.username == username:
-                return account
-        return None
-
-    def get_all_usernames(self) -> List[str]:
-        """获取所有用户名"""
-        if self.config is None:
-            return []
-        return [account.username for account in self.config.accounts]
-
-    def get_accounts_count(self) -> int:
-        """获取账号数量"""
-        if self.config is None:
-            return 0
-        return len(self.config.accounts)
-
-    # ----------------------
-    # dot-access
-    # ----------------------
-    def __getattr__(self, item):
-        if self.config is not None and hasattr(self.config, item):
-            return getattr(self.config, item)
-        raise AttributeError(f"{item} not found in Config")
-
-    def __setattr__(self, key, value):
-        if key in {"path", "config", "_yaml", "_yaml_data"}:
-            super().__setattr__(key, value)
-        elif self.config is not None and hasattr(self.config, key):
-            setattr(self.config, key, value)
-        else:
-            super().__setattr__(key, value)
-
+__all__ = [
+    "HifitiAccountConfig",
+    "HifitiConfig",
+    "load_hifiti_config",
+]
