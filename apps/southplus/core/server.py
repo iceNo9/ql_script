@@ -19,6 +19,7 @@ SouthPlus 应用编排。
 - 邮件发送
 """
 
+import json
 import re
 from collections.abc import Callable
 from datetime import timedelta
@@ -458,14 +459,26 @@ class SouthPlusClient:
         cookies: dict[str, str],
         db_account: Account | None = None,
     ) -> None:
+        """
+        保存验证成功的 Cookie。
+
+        Args:
+            account:
+                SouthPlus 账号配置。
+
+            cookies:
+                验证成功的 Cookie 字典。
+
+            db_account:
+                数据库账号对象（可选，避免重复查询）。
+        """
+
+        cookies_str = json.dumps(cookies)
+
         if db_account is None:
             db_account = self.account_repository.get_by_username(
                 account.username,
             )
-
-        cookies_str = cookiesparser.encode(
-            cookies,
-        )
 
         if db_account is None:
             self.account_repository.create(
@@ -480,6 +493,7 @@ class SouthPlusClient:
 
             return
 
+        # 更新 Cookie（总是更新）
         self.account_repository.update_cookies(
             db_account,
             cookies_str,

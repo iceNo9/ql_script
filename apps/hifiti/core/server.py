@@ -1,5 +1,7 @@
 # modules/hifiti/core/hifiti.py
 
+import ast
+import json
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar
@@ -211,7 +213,6 @@ class HifitiClient:
 
         使用 ast.literal_eval 进行安全反序列化。
         """
-        import ast
 
         if not cookies_str:
             return None
@@ -384,8 +385,6 @@ class HifitiClient:
             cookies: 验证成功的 Cookie 字典
             db_account: 数据库账号对象（可选，避免重复查询）
         """
-        import json
-
         cookies_str = json.dumps(cookies)
 
         if db_account is None:
