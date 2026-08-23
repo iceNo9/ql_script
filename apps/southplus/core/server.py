@@ -1271,7 +1271,7 @@ class SouthPlusClient:
                 logger.warning(
                     "获取 SouthPlus Profile 失败: " "username=%s, error=%s",
                     account.username,
-                    result.message,
+                    result.error,
                 )
 
                 return None

@@ -315,53 +315,6 @@ def _execute_operations(
         # 用于同步每日 / 每周任务执行后的最新 SP。
         # ================================================================
 
-        logger.info("=" * 60)
-        logger.info("开始获取任务执行后的全部账号 Profile...")
-
-        try:
-            profile_results = client.get_profile_all()
-
-            total_count = len(profile_results)
-
-            success_count = sum(
-                1
-                for result in profile_results.values()
-                if result is not None and result.success
-            )
-
-            logger.info(
-                "任务后 Profile 获取完成: 成功 %d/%d",
-                success_count,
-                total_count,
-            )
-
-            for username, result in profile_results.items():
-
-                if result is None:
-                    logger.warning(
-                        "获取任务后 Profile 失败 [%s]: 返回结果为 None",
-                        username,
-                    )
-
-                elif result.success:
-                    logger.info(
-                        "账号 %s: 当前 SP %s",
-                        username,
-                        result.points_sp,
-                    )
-
-                else:
-                    logger.warning(
-                        "获取任务后 Profile 失败 [%s]: %s",
-                        username,
-                        result.error,
-                    )
-
-        except Exception:
-            logger.exception(
-                "获取任务后 Profile 失败，继续执行报告",
-            )
-
         # ================================================================
         # 5. 构建报告
         # ================================================================

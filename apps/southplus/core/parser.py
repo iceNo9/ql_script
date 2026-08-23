@@ -236,6 +236,10 @@ class SouthPlusProfileResult(SouthPlusBaseResult):
     ) -> Self:
         """
         从 Profile HTTP Response 解析用户积分信息。
+
+        Raises:
+            ValueError:
+                Response 不符合当前 Profile 解析规则。
         """
 
         soup = BeautifulSoup(
@@ -243,7 +247,9 @@ class SouthPlusProfileResult(SouthPlusBaseResult):
             "html.parser",
         )
 
-        points_sp = 0
+        # --------------------------------------------------------
+        # 查找 SP币
+        # --------------------------------------------------------
 
         for td in soup.find_all("td"):
             text = td.get_text(
@@ -251,26 +257,39 @@ class SouthPlusProfileResult(SouthPlusBaseResult):
                 strip=True,
             )
 
-            if text.startswith("SP币"):
-                value = td.find("span")
+            if not text.startswith("SP币"):
+                continue
 
-                if value is None:
-                    break
+            value = td.find("span")
 
-                try:
-                    points_sp = int(
-                        value.get_text(
-                            strip=True,
-                        )
-                    )
-                except ValueError:
-                    pass
+            if value is None:
+                raise ValueError(
+                    "找到 SP币字段，但未找到对应的 span 元素",
+                )
 
-                break
+            value_text = value.get_text(
+                strip=True,
+            )
 
-        return cls(
-            success=True,
-            points_sp=points_sp,
+            try:
+                points_sp = int(value_text)
+
+            except ValueError as exc:
+                raise ValueError(
+                    f"SP币数值解析失败: {value_text!r}",
+                ) from exc
+
+            return cls(
+                success=True,
+                points_sp=points_sp,
+            )
+
+        # --------------------------------------------------------
+        # 未找到 SP币
+        # --------------------------------------------------------
+
+        raise ValueError(
+            "未找到 SP币字段，Profile 页面结构可能已发生变化",
         )
 
 
