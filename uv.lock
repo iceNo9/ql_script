@@ -89,6 +89,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cookiesparser"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/74/64911da610dd96d1ced935e3ee9027e7bea3197728cfc5e800cf3902e2cc/cookiesparser-1.4.0.tar.gz", hash = "sha256:52f6a3941c64020d654acb902063b5d6ca4d241874ec4a4704d243a4c6159bb0", size = 6994, upload-time = "2025-01-01T14:41:08.72Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/f3/ecff5849b37f90751f6cc7497be4b6c65e188b6424c150ed7c5eafa9e7ce/cookiesparser-1.4.0-py3-none-any.whl", hash = "sha256:4b1f0feeab0ba0dc8a0d81bbed240e5ab8b82e50bae7f0a4dab4f902ba582711", size = 7891, upload-time = "2025-01-01T14:41:07.293Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "50.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -220,16 +229,27 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dotenv"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/53/ed9d74092561d4b01a2ef1349d52cdbc135e526c245f366b089cfca6de49/python_dotenv-1.2.3.tar.gz", hash = "sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35", size = 58945, upload-time = "2026-08-16T16:54:54.067Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/17/c5c6b53ddc18f297992099b3d9ec16c855c0ccc83263a21fe4d1c625ec6c/python_dotenv-1.2.3-py3-none-any.whl", hash = "sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9", size = 22780, upload-time = "2026-08-16T16:54:52.473Z" },
+]
+
+[[package]]
 name = "ql-script"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "brotli" },
+    { name = "cookiesparser" },
     { name = "cryptography" },
     { name = "imapclient" },
     { name = "mail-parser" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "ruamel-yaml" },
     { name = "sqlalchemy" },
@@ -239,10 +259,12 @@ dependencies = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "brotli", specifier = ">=1.2.0" },
+    { name = "cookiesparser", specifier = ">=1.4.0" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "imapclient", specifier = ">=3.1.0" },
     { name = "mail-parser", specifier = ">=4.6.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "ruamel-yaml", specifier = ">=0.19.1" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },

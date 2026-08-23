@@ -1,99 +1,416 @@
-# modules/southplus/main.py
+# apps/southplus/main.py
 
+import sys
+
+from apps.southplus.core.config import load_southplus_config
+from apps.southplus.core.repositories import init_database
+from apps.southplus.core.server import SouthPlusClient
+from utils.config import get_config_path, load_global_config
 from utils.log import get_logger
-from utils.config import GlobalConfigManager
+from utils.paths import logs
 
-from apps.southplus.core.config import ConfigManager
-from apps.southplus.core.app import App
-
-logger = get_logger(__name__)
-
-MODULE_NAME = "南+"
+logger = get_logger(
+    name="southplus_main",
+    log_dir=logs(),
+    fmt_type="detailed",
+)
 
 
 def main():
-    """southplus 任务调度主入口"""
+    """SouthPlus 任务主入口。"""
 
-    # =========================
-    # 1. 加载全局配置
-    # =========================
-    global_config_manager = GlobalConfigManager("./config/global.yaml")
-    global_config = global_config_manager.read()
+    client: SouthPlusClient | None = None
 
-    logger.info(f"[{MODULE_NAME}] 全局配置加载完成")
-
-    # =========================
-    # 2. 加载 southplus 配置
-    # =========================
-    config_manager = ConfigManager("./config/southplus.yaml")
-    config = config_manager.read()
-
-    if not config:
-        logger.error(f"[{MODULE_NAME}] 配置加载失败")
-        return
-
-    usernames = [acc.username for acc in config.accounts]
-
-    logger.info(f"[{MODULE_NAME}] 账号加载完成，共 {len(usernames)} 个: {usernames}")
-
-    # =========================
-    # 3. 创建 APP
-    # =========================
-    app = App(
-        global_config=global_config,
-        config_manager=config_manager,
-    )
-
-    # =========================
-    # 4. 执行任务
-    # =========================
     try:
-        logger.info("=" * 50)
-        logger.info("[任务] 开始执行日常和周常任务")
+        # ================================================================
+        # 1. 加载全局配置
+        # ================================================================
 
-        task_results = app.run()
+        logger.info("开始加载全局配置...")
 
-        # 打印任务执行结果
-        success_count = len([r for r in task_results if r.message and "无任务执行" not in r.message])
-        logger.info(f"[任务] 执行完成，共执行 {success_count} 个任务")
+        global_config = load_global_config()
 
-        # 打印每个用户的任务状态
-        for result in task_results:
-            logger.info(f"  - {result.username}: {result.message}")
+        logger.info("全局配置加载完成")
 
-        # =========================
-        # 5. 发送邮件通知（按需发送，同一天只发一次）
-        # =========================
-        logger.info("=" * 50)
-        logger.info("[邮件] 检查是否需要发送报告")
+        # ================================================================
+        # 2. 加载 SouthPlus 配置
+        # ================================================================
 
-        sent = app.send_report_if_needed()
+        logger.info("开始加载 SouthPlus 配置...")
 
-        if sent:
-            logger.info(f"[{MODULE_NAME}] 邮件报告发送成功")
-        else:
-            logger.info(f"[{MODULE_NAME}] 今日已发送过邮件报告，跳过")
+        southplus_config = load_southplus_config()
 
-        # =========================
-        # 6. 打印账户信息摘要
-        # =========================
-        logger.info("=" * 50)
-        logger.info("[账户] 当前账户信息摘要")
+        if not southplus_config:
+            message = (
+                "SouthPlus 配置加载失败，请检查 " f"{get_config_path('southplus')} 文件"
+            )
 
-        for acc in app._account_infos:
-            change = acc.sp_coin - acc.last_sp_coin
-            change_str = f"+{change}" if change >= 0 else str(change)
+            logger.error(message)
+
+            # 配置加载阶段 Client 尚未创建，
+            # 因此这里无法使用 client.send_report()。
+            #
+            # 此处仅记录日志并退出。
+            sys.exit(1)
+
+        # ------------------------------------------------------------
+        # 用户列表为空
+        # ------------------------------------------------------------
+
+        if not southplus_config.accounts:
+            message = (
+                "SouthPlus 用户列表为空，请检查 " f"{get_config_path('southplus')} 文件"
+            )
+
+            logger.error(message)
+
+            # 同样，此时 Client 尚未创建，
+            # 不进行通知发送。
+            sys.exit(1)
+
+        logger.info(
+            "SouthPlus 配置加载完成，共 %d 个账号",
+            len(southplus_config.accounts),
+        )
+
+        # ================================================================
+        # 3. 初始化数据库
+        # ================================================================
+
+        logger.info("开始初始化 SouthPlus 数据库...")
+
+        init_database()
+
+        logger.info("SouthPlus 数据库初始化完成")
+
+        # ================================================================
+        # 4. 创建客户端
+        # ================================================================
+
+        client = SouthPlusClient(
+            global_config=global_config,
+            southplus_config=southplus_config,
+        )
+
+        # ================================================================
+        # 5. 执行任务
+        # ================================================================
+
+        _execute_operations(client)
+
+    except KeyboardInterrupt:
+        logger.info("用户中断执行，正在退出...")
+        sys.exit(0)
+
+    except FileNotFoundError as e:
+        logger.error("配置文件不存在: %s", e)
+        sys.exit(1)
+
+    except PermissionError as e:
+        logger.error("文件权限不足: %s", e)
+        sys.exit(1)
+
+    except ConnectionError as e:
+        logger.error("网络连接失败: %s", e)
+        sys.exit(1)
+
+    except Exception:
+        logger.exception("程序异常退出")
+        sys.exit(1)
+
+    finally:
+        if client and hasattr(client, "close"):
+            try:
+                client.close()
+            except Exception:
+                logger.exception("关闭 client 时出错")
+
+        logger.info("资源清理完成")
+
+
+# ========================================================================
+# Operations
+# ========================================================================
+
+
+def _execute_operations(
+    client: SouthPlusClient,
+) -> None:
+    """
+    执行所有 SouthPlus 操作。
+
+    当前编排顺序：
+
+        1. 获取用户 Profile
+        2. 执行每日任务
+        3. 执行每周任务
+        4. 再次获取 Profile
+        5. 构建报告
+        6. 发送通知
+
+    具体业务判断由 SouthPlusClient 负责。
+    """
+
+    try:
+        # ================================================================
+        # 1. 获取用户 Profile
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始获取全部账号 Profile...")
+
+        try:
+            profile_results = client.get_profile_all()
+
+            total_count = len(profile_results)
+
+            success_count = sum(
+                1
+                for result in profile_results.values()
+                if result is not None and result.success
+            )
+
             logger.info(
-                f"  - {acc.username}: "
-                f"当前SP币={acc.sp_coin}, "
-                f"上次SP币={acc.last_sp_coin}, "
-                f"变化={change_str}, "
-                f"日常={acc.daily_count}, "
-                f"周常={acc.weekly_count}"
+                "Profile 获取完成: 成功 %d/%d",
+                success_count,
+                total_count,
+            )
+
+            for username, result in profile_results.items():
+
+                if result is None:
+                    logger.warning(
+                        "获取 Profile 失败 [%s]: 返回结果为 None",
+                        username,
+                    )
+
+                elif result.success:
+                    logger.info(
+                        "账号 %s: 当前 SP %s",
+                        username,
+                        result.points_sp,
+                    )
+
+                else:
+                    logger.warning(
+                        "获取 Profile 失败 [%s]: %s",
+                        username,
+                        result.error,
+                    )
+
+        except Exception:
+            logger.exception(
+                "获取 Profile 失败，继续执行后续任务",
+            )
+
+        # ================================================================
+        # 2. 执行每日任务
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始执行每日任务...")
+
+        try:
+            daily_results = client.complete_daily_all()
+
+            total_count = len(daily_results)
+
+            success_results = [
+                result
+                for result in daily_results.values()
+                if result is not None and result.success
+            ]
+
+            success_count = len(success_results)
+
+            logger.info(
+                "每日任务完成: 成功 %d/%d",
+                success_count,
+                total_count,
+            )
+
+            for username, result in daily_results.items():
+
+                if result is None:
+                    logger.warning(
+                        "每日任务失败 [%s]: 返回结果为 None",
+                        username,
+                    )
+
+                elif result.success:
+                    logger.info(
+                        "账号 %s: 每日任务完成，SP 变化 %+d",
+                        username,
+                        result.delta_points_sp,
+                    )
+
+                else:
+                    logger.warning(
+                        "每日任务失败 [%s]: %s",
+                        username,
+                        result.error,
+                    )
+
+        except Exception:
+            logger.exception(
+                "每日任务执行失败，继续执行周常任务",
+            )
+
+        # ================================================================
+        # 3. 执行每周任务
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始执行每周任务...")
+
+        try:
+            weekly_results = client.complete_weekly_all()
+
+            total_count = len(weekly_results)
+
+            success_results = [
+                result
+                for result in weekly_results.values()
+                if result is not None and result.success
+            ]
+
+            success_count = len(success_results)
+
+            logger.info(
+                "每周任务完成: 成功 %d/%d",
+                success_count,
+                total_count,
+            )
+
+            for username, result in weekly_results.items():
+
+                if result is None:
+                    logger.warning(
+                        "每周任务失败 [%s]: 返回结果为 None",
+                        username,
+                    )
+
+                elif result.success:
+                    logger.info(
+                        "账号 %s: 每周任务完成，SP 变化 %+d",
+                        username,
+                        result.delta_points_sp,
+                    )
+
+                else:
+                    logger.warning(
+                        "每周任务失败 [%s]: %s",
+                        username,
+                        result.error,
+                    )
+
+        except Exception:
+            logger.exception(
+                "每周任务执行失败，继续执行后续操作",
+            )
+
+        # ================================================================
+        # 4. 再次获取 Profile
+        #
+        # 用于同步每日 / 每周任务执行后的最新 SP。
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始获取任务执行后的全部账号 Profile...")
+
+        try:
+            profile_results = client.get_profile_all()
+
+            total_count = len(profile_results)
+
+            success_count = sum(
+                1
+                for result in profile_results.values()
+                if result is not None and result.success
+            )
+
+            logger.info(
+                "任务后 Profile 获取完成: 成功 %d/%d",
+                success_count,
+                total_count,
+            )
+
+            for username, result in profile_results.items():
+
+                if result is None:
+                    logger.warning(
+                        "获取任务后 Profile 失败 [%s]: 返回结果为 None",
+                        username,
+                    )
+
+                elif result.success:
+                    logger.info(
+                        "账号 %s: 当前 SP %s",
+                        username,
+                        result.points_sp,
+                    )
+
+                else:
+                    logger.warning(
+                        "获取任务后 Profile 失败 [%s]: %s",
+                        username,
+                        result.error,
+                    )
+
+        except Exception:
+            logger.exception(
+                "获取任务后 Profile 失败，继续执行报告",
+            )
+
+        # ================================================================
+        # 5. 构建报告
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始构建 SouthPlus 运行报告...")
+
+        try:
+            html = client.build_report_html()
+
+            logger.info("SouthPlus 报告构建完成")
+
+        except Exception:
+            logger.exception(
+                "构建 SouthPlus 报告失败",
+            )
+            raise
+
+        # ================================================================
+        # 6. 发送通知
+        # ================================================================
+
+        logger.info("=" * 60)
+        logger.info("开始发送 SouthPlus 运行报告...")
+
+        try:
+            sent = client.send_report(
+                html,
+            )
+
+            if sent:
+                logger.info(
+                    "SouthPlus 运行报告发送完成",
+                )
+            else:
+                logger.info(
+                    "SouthPlus 运行报告未发送",
+                )
+
+        except Exception:
+            logger.exception(
+                "SouthPlus 报告发送处理失败",
             )
 
     except Exception as e:
-        logger.error(f"[{MODULE_NAME}] 运行失败: {e}", exc_info=True)
+        logger.error(
+            "执行 SouthPlus 操作时发生严重错误: %s",
+            e,
+        )
         raise
 
 

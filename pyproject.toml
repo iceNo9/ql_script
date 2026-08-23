@@ -7,10 +7,12 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "brotli>=1.2.0",
+    "cookiesparser>=1.4.0",
     "cryptography>=50.0.0",
     "imapclient>=3.1.0",
     "mail-parser>=4.6.1",
     "psycopg[binary]>=3.3.4",
+    "python-dotenv>=1.2.3",
     "requests>=2.34.2",
     "ruamel-yaml>=0.19.1",
     "sqlalchemy>=2.0.52",

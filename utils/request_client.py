@@ -509,6 +509,15 @@ class RequestClient:
         for key, value in cookies.items():
             self.session.cookies.set(key, value)
 
+    def update_cookies(
+        self,
+        cookies: dict[str, str],
+    ) -> None:
+        """更新会话级 Cookie。"""
+
+        for key, value in cookies.items():
+            self.session.cookies.set(key, value)
+
     def get_cookies_dict(self) -> dict[str, str]:
         """获取当前 Cookie 字典。"""
 
