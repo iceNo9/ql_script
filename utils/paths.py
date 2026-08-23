@@ -13,6 +13,7 @@ class PathManager:
     def __init__(self):
         """初始化路径管理器，自动检测项目根目录"""
         self._root_dir = self._find_root_dir()
+        print(f"项目根目录: {self._root_dir}")
 
     def _find_root_dir(self) -> Path:
         """
