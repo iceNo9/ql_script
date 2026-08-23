@@ -17,34 +17,27 @@ class PathManager:
 
     def _find_root_dir(self) -> Path:
         """
-        查找项目根目录
+        查找项目根目录。
 
-        从当前文件所在目录向上查找，直到找到包含特定标识文件的目录。
-        标识文件可以是：.git, pyproject.toml, setup.py, requirements.txt 等
+        从当前文件所在目录向上查找，只要目录中存在
+        ``task_*.py`` 文件或 ``main.py``，就认为该目录为项目根目录。
 
         Returns:
             Path: 项目根目录路径
         """
-        # 获取当前文件所在目录 (utils 目录)
         current_dir = Path(__file__).resolve().parent
 
-        # 向上查找直到找到项目根目录
-        for parent in [current_dir] + list(current_dir.parents):
-            # 检查常见的项目根目录标识
-            markers = [
-                parent / ".git",
-                parent / "pyproject.toml",
-                parent / "setup.py",
-                parent / "requirements.txt",
-                parent / "manage.py",  # Django 项目
-                parent / "package.json",  # Node.js 项目
-            ]
+        markers = [
+            "task_*.py",
+            "main.py",
+        ]
 
-            if any(marker.exists() for marker in markers):
+        for parent in [current_dir] + list(current_dir.parents):
+            if any(
+                path.is_file() for pattern in markers for path in parent.glob(pattern)
+            ):
                 return parent
 
-        # 如果没有找到标识，默认返回当前文件所在目录的上两级目录
-        # 即假设结构为: project_root/utils/paths.py
         return current_dir.parent
 
     @property
