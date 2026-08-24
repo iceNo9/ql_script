@@ -1444,14 +1444,25 @@ class SouthPlusClient:
                     # Daily
                     # ====================================================
 
+                    last_daily_complete_at = db_account.last_daily_complete_at
+
+                    if last_daily_complete_at is not None:
+                        last_daily_complete_at = utc_to_local(
+                            last_daily_complete_at,
+                        )
+
+                        next_daily_complete_at = (
+                            last_daily_complete_at + DAILY_INTERVAL
+                        )
+                    else:
+                        next_daily_complete_at = None
+
                     daily.append(
                         DailyTaskInfo(
                             username=db_account.username,
-                            complete_count=(db_account.daily_complete_count),
-                            last_complete_at=(db_account.last_daily_complete_at),
-                            # TODO:
-                            # 根据 SouthPlus 日常周期计算。
-                            next_complete_at=None,
+                            complete_count=db_account.daily_complete_count,
+                            last_complete_at=last_daily_complete_at,
+                            next_complete_at=next_daily_complete_at,
                         )
                     )
 
@@ -1459,14 +1470,25 @@ class SouthPlusClient:
                     # Weekly
                     # ====================================================
 
+                    last_weekly_complete_at = db_account.last_weekly_complete_at
+
+                    if last_weekly_complete_at is not None:
+                        last_weekly_complete_at = utc_to_local(
+                            last_weekly_complete_at,
+                        )
+
+                        next_weekly_complete_at = (
+                            last_weekly_complete_at + WEEKLY_INTERVAL
+                        )
+                    else:
+                        next_weekly_complete_at = None
+
                     weekly.append(
                         WeeklyTaskInfo(
                             username=db_account.username,
-                            complete_count=(db_account.weekly_complete_count),
-                            last_complete_at=(db_account.last_weekly_complete_at),
-                            # TODO:
-                            # 根据 SouthPlus 周常周期计算。
-                            next_complete_at=None,
+                            complete_count=db_account.weekly_complete_count,
+                            last_complete_at=last_weekly_complete_at,
+                            next_complete_at=next_weekly_complete_at,
                         )
                     )
 
