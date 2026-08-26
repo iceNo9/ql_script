@@ -168,12 +168,13 @@ class HifitiCheckinResult(HifitiBaseResult):
     @classmethod
     def _parse_checkin_message(cls, message: str) -> tuple[int, int]:
         """
-        从签到消息中提取排名和金币。
+        从签到消息中提取排名和总金币。
 
         消息格式示例：
         - "成功签到！今日排名5491，总奖励2金币！"
+        - "成功签到！今日排名65，连续签到7天额外奖励2金币，总奖励4金币！"
 
-        返回: (rank, gold)
+        返回: (rank, gold)  # gold为总奖励
         """
 
         rank = 0
@@ -190,8 +191,8 @@ class HifitiCheckinResult(HifitiBaseResult):
             except ValueError:
                 pass
 
-        # 提取金币：数字 + 金币
-        gold_match = re.search(r"(\d+)金币", message)
+        # 提取总奖励：匹配"总奖励"后面的数字
+        gold_match = re.search(r"总奖励(\d+)金币", message)
         if gold_match:
             try:
                 gold = int(gold_match.group(1))
