@@ -44,12 +44,12 @@ class TaskResult:
 class CheckinResult(TaskResult):
     """签到结果。"""
 
-    point: int = 0
+    points: int = 0
 
     def to_dict(self) -> dict:
         return {
             **super().to_dict(),
-            "point": self.point,
+            "points": self.points,
         }
 
 
@@ -214,7 +214,7 @@ class ReportData:
             CheckinResult(
                 username=item["username"],
                 success=item["success"],
-                point=item.get("point", 0),
+                points=item.get("points", 0),
                 message=item.get("message", ""),
             )
             for item in data.get("checkin", [])

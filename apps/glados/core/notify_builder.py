@@ -333,7 +333,7 @@ class SectionBuilder:
                             cls._status_badge(result.success),
                         ),
                         cls._cell(
-                            f"+{result.point}",
+                            f"+{result.points}",
                             color=cls.COLORS["warning"],
                             bold=True,
                         ),
@@ -353,7 +353,7 @@ class SectionBuilder:
 
         successful = sum(1 for result in results if result.success)
 
-        total_points = sum(result.point for result in results if result.success)
+        total_points = sum(result.points for result in results if result.success)
 
         success_rate = successful / total * 100
 
