@@ -157,7 +157,7 @@ class BaiyefeeCheckinResult(BaiyefeeBaseResult):
                 checkin_points=checkin_points,
                 points=0,
                 message=f"今日已签到，获得 {checkin_points} 积分",
-                date="",
+                local_date="",
             )
 
         # 情况2：响应是字典（正常签到）
