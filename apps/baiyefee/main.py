@@ -2,9 +2,9 @@
 
 import sys
 
+from apps.baiyefee.core.app import BaiyefeeApp
 from apps.baiyefee.core.config import load_baiyefee_config
 from apps.baiyefee.core.repositories import init_database
-from apps.baiyefee.core.server import BaiyefeeClient
 from utils.config import get_config_path, load_global_config
 from utils.log import get_logger
 from utils.notify import send
@@ -15,7 +15,7 @@ logger = get_logger(name="baiyefee_main", log_dir=logs(), fmt_type="detailed")
 
 def main():
     """Baiyefee 签到任务主入口"""
-    client: BaiyefeeClient | None = None
+    client: BaiyefeeApp | None = None
 
     try:
         # 1. 加载全局配置
@@ -48,7 +48,7 @@ def main():
         # 3. 初始化数据库, 创建客户端
         init_database()
 
-        client = BaiyefeeClient(
+        client = BaiyefeeApp(
             global_config=global_config,
             baiyefee_config=baiyefee_config,
         )
@@ -85,7 +85,7 @@ def main():
         logger.info("资源清理完成")
 
 
-def _execute_operations(client: BaiyefeeClient) -> None:
+def _execute_operations(client: BaiyefeeApp) -> None:
     """
     执行所有 Baiyefee 操作
 
