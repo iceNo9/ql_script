@@ -1,4 +1,4 @@
-# modules/baiyefee/core/baiyefee.py
+# apps\baiyefee\core\server.py
 
 from collections.abc import Callable
 from datetime import datetime

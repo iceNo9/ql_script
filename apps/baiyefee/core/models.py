@@ -1,3 +1,4 @@
+# apps\baiyefee\core\models.py
 """
 Baiyefee 数据库实体定义。
 
