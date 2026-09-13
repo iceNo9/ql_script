@@ -45,10 +45,13 @@ def handle_response(
     """
     统一处理 API 请求结果。
 
-    正常响应（HTTP 2xx）：
+    正常响应（response.ok 为 True，即 HTTP 状态码 < 400）：
         返回 requests.Response。
+        注意：该条件包含 1xx / 2xx / 3xx，
+        并非仅限 2xx。若上游存在未跟随的重定向（3xx），
+        也会被视作正常响应原样返回。
 
-    HTTP 非 2xx 响应：
+    HTTP 非正常响应（response.ok 为 False，即 HTTP 状态码 >= 400）：
         记录详细日志。
         抛出 BaiyefeeAPIError，并携带 HTTP 状态码。
 
@@ -63,7 +66,7 @@ def handle_response(
     注意：
         本装饰器不再返回 None。
         调用方只有两种正常情况：
-        1. 获取到有效的 requests.Response。
+        1. 获取到有效的 requests.Response（response.ok 为 True）。
         2. 发生异常。
 
         这样上层认证逻辑可以通过捕获 BaiyefeeAPIError，
@@ -78,7 +81,7 @@ def handle_response(
 
     Raises:
         BaiyefeeAPIError:
-            HTTP 非 2xx 响应或 HTTP 请求异常。
+            HTTP 非正常响应（response.ok 为 False）或 HTTP 请求异常。
         Exception:
             其他未预期异常原样向上抛出。
     """
@@ -88,11 +91,11 @@ def handle_response(
         try:
             response = func(*args, **kwargs)
 
-            # HTTP 2xx：请求成功
+            # response.ok 为 True：HTTP 状态码 < 400（含 1xx/2xx/3xx）
             if response.ok:
                 return response
 
-            # HTTP 非 2xx：记录完整响应信息
+            # response.ok 为 False：HTTP 状态码 >= 400，记录完整响应信息
             logger.error(
                 "API 请求失败: %s\n"
                 "状态码: %s\n"
