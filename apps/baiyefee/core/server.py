@@ -244,56 +244,64 @@ class BaiyefeeClient:
         return account.token.strip()
 
     def _login_with_password(
-        self,
-        account: BaiyefeeAccountConfig,
-        db_account: Account | None = None,
-    ) -> str | None:
-        """
-        通过用户名密码登录 Baiyefee。
+            self,
+            account: BaiyefeeAccountConfig,
+            db_account: Account | None = None,
+        ) -> str | None:
+            """
+            通过用户名密码登录 Baiyefee。
 
-        密码优先级：
-        1. 数据库中的密码（优先）
-        2. 配置文件中的密码
+            密码优先级：
+            1. 数据库中的密码（优先）
+            2. 配置文件中的密码
 
-        Args:
-            account: 账号配置
-            db_account: 数据库账号对象（可选）
+            异常传播：
+                self.api.login() 内部经 handle_response 装饰后，
+                在 HTTP 非正常响应或 HTTP 请求异常时会抛出
+                BaiyefeeAPIError。本方法不捕获该异常，
+                由上层登录流程统一处理。
 
-        Returns:
-            登录成功返回 Token，失败返回 None。
-        """
-        password = None
+            Args:
+                account: 账号配置
+                db_account: 数据库账号对象（可选）
 
-        # 1. 优先使用数据库中的密码
-        if db_account is not None:
-            password = self.account_repository.get_passwd(db_account)
-            if password:
+            Returns:
+                登录成功返回 Token，失败返回 None。
+            """
+            password = None
+
+            # 1. 优先使用数据库中的密码
+            if db_account is not None:
+                password = self.account_repository.get_passwd(db_account)
+                if password:
+                    logger.debug(
+                        "账号 %s 使用数据库密码登录",
+                        account.username,
+                    )
+
+            # 2. 如果数据库中没有密码，使用配置文件中的密码
+            if not password and account.passwd and account.passwd.strip():
+                password = account.passwd.strip()
                 logger.debug(
-                    "账号 %s 使用数据库密码登录",
+                    "账号 %s 使用配置文件密码登录",
                     account.username,
                 )
 
-        # 2. 如果数据库中没有密码，使用配置文件中的密码
-        if not password and account.passwd and account.passwd.strip():
-            password = account.passwd.strip()
-            logger.debug(
-                "账号 %s 使用配置文件密码登录",
+            if not password:
+                logger.warning(
+                    "账号 %s 未配置密码（数据库和配置文件均无），无法通过密码登录",
+                    account.username,
+                )
+                return None
+
+            logger.info(
+                "开始通过用户名密码登录 Baiyefee: username=%s",
                 account.username,
             )
 
-        if not password:
-            logger.warning(
-                "账号 %s 未配置密码（数据库和配置文件均无），无法通过密码登录",
-                account.username,
-            )
-            return None
-
-        logger.info(
-            "开始通过用户名密码登录 Baiyefee: username=%s",
-            account.username,
-        )
-
-        try:
+            # 注意：self.api.login() 由 handle_response 装饰，
+            # HTTP 非正常响应 / 请求异常会抛出 BaiyefeeAPIError，
+            # 此处不捕获，让其向上传播，由上层登录流程统一处理。
             login_response = self.api.login(account.username, password)
             login_result = self.parser.parse_login(login_response)
 
@@ -311,13 +319,6 @@ class BaiyefeeClient:
             )
 
             return login_result.token
-
-        except Exception:
-            logger.exception(
-                "Baiyefee 登录异常: username=%s",
-                account.username,
-            )
-            return None
 
     # ====================================================================
     # Token
