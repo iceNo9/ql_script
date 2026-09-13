@@ -1,19 +1,19 @@
-# apps/southplus/core/config.py
+# apps/southpro/core/config.py
 
 """
-SouthPlus 应用配置模块。
+SouthPro 应用配置模块。
 
 负责：
 
-- 定义 SouthPlus 应用配置 Model
-- 定义单个 SouthPlus 账号配置 Model
-- 从全局配置模块加载 config/southplus.yaml
-- 初始化 SouthPlus 加密密钥
-- 首次运行时创建 SouthPlus 配置模板
+- 定义 SouthPro 应用配置 Model
+- 定义单个 SouthPro 账号配置 Model
+- 从全局配置模块加载 config/southpro.yaml
+- 初始化 SouthPro 加密密钥
+- 首次运行时创建 SouthPro 配置模板
 
 不负责：
 
-- SouthPlus 业务逻辑
+- SouthPro 业务逻辑
 - 账号登录
 - Cookie 获取与刷新
 """
@@ -31,9 +31,9 @@ from utils.crypto import generate_key
 
 
 @dataclass
-class SouthPlusAccountConfig:
+class SouthProAccountConfig:
     """
-    单个 SouthPlus 账号配置。
+    单个 SouthPro 账号配置。
 
     一个账号对应一个用户名。
     """
@@ -43,16 +43,16 @@ class SouthPlusAccountConfig:
 
 
 @dataclass
-class SouthPlusConfig:
+class SouthProConfig:
     """
-    SouthPlus 应用配置。
+    SouthPro 应用配置。
 
-    一个 SouthPlus 应用可以配置多个账号。
+    一个 SouthPro 应用可以配置多个账号。
     """
 
     encryption_key: str
     user_agent: str
-    accounts: list[SouthPlusAccountConfig] = field(default_factory=list)
+    accounts: list[SouthProAccountConfig] = field(default_factory=list)
 
 
 # ============================================================================
@@ -62,7 +62,7 @@ class SouthPlusConfig:
 
 def _create_default_config() -> CommentedMap:
     """
-    创建 SouthPlus 默认配置模板。
+    创建 SouthPro 默认配置模板。
 
     首次运行时生成：
 
@@ -74,7 +74,7 @@ def _create_default_config() -> CommentedMap:
 
     Returns:
         CommentedMap:
-            SouthPlus 默认配置。
+            SouthPro 默认配置。
     """
 
     config = CommentedMap()
@@ -84,7 +84,7 @@ def _create_default_config() -> CommentedMap:
     # ------------------------------------------------------------------------
 
     config.yaml_set_start_comment("""
-        SouthPlus 应用配置。
+        SouthPro 应用配置。
 
         本文件由程序首次启动时自动生成。
 
@@ -106,7 +106,7 @@ def _create_default_config() -> CommentedMap:
     config.yaml_set_comment_before_after_key(
         "encryption_key",
         before=(
-            "SouthPlus 应用加密密钥。\n"
+            "SouthPro 应用加密密钥。\n"
             "\n"
             "该密钥由程序首次启动时自动生成。\n"
             "请勿修改，否则已保存的 Cookies 将无法解密。"
@@ -143,7 +143,7 @@ def _create_default_config() -> CommentedMap:
     config.yaml_set_comment_before_after_key(
         "accounts",
         before=(
-            "SouthPlus 账号列表。\n"
+            "SouthPro 账号列表。\n"
             "\n"
             "可以配置多个账号。\n"
             "复制上面的账号模板到 accounts: 下方即可。\n"
@@ -163,31 +163,31 @@ def _create_default_config() -> CommentedMap:
 # ============================================================================
 
 
-def load_southplus_config() -> SouthPlusConfig | None:
+def load_southpro_config() -> SouthProConfig | None:
     """
-    加载 SouthPlus 应用配置。
+    加载 SouthPro 应用配置。
 
     对应：
 
-        config/southplus.yaml
+        config/southpro.yaml
 
     如果配置文件不存在：
 
     1. 自动生成加密密钥。
     2. 创建带完整中文注释的配置模板。
-    3. 保存到 config/southplus.yaml。
+    3. 保存到 config/southpro.yaml。
     4. 返回 None。
 
     返回 None 表示：
 
-        SouthPlus 配置文件刚刚初始化，
+        SouthPro 配置文件刚刚初始化，
         当前还没有正式加载应用配置。
 
-    如果配置文件已经存在，则正常加载并返回 SouthPlusConfig。
+    如果配置文件已经存在，则正常加载并返回 SouthProConfig。
 
     Returns:
-        SouthPlusConfig | None:
-            配置加载成功返回 SouthPlusConfig。
+        SouthProConfig | None:
+            配置加载成功返回 SouthProConfig。
             首次初始化配置文件返回 None。
     """
 
@@ -195,10 +195,10 @@ def load_southplus_config() -> SouthPlusConfig | None:
     # 首次运行
     # ------------------------------------------------------------------------
 
-    if not config_exists("southplus"):
+    if not config_exists("southpro"):
         data = _create_default_config()
 
-        save_config("southplus", data)
+        save_config("southpro", data)
 
         return None
 
@@ -206,7 +206,7 @@ def load_southplus_config() -> SouthPlusConfig | None:
     # 正常加载
     # ------------------------------------------------------------------------
 
-    data = load_config("southplus")
+    data = load_config("southpro")
 
     encryption_key = data.get("encryption_key")
 
@@ -216,7 +216,7 @@ def load_southplus_config() -> SouthPlusConfig | None:
         encryption_key = generate_key()
         data["encryption_key"] = encryption_key
 
-        save_config("southplus", data)
+        save_config("southpro", data)
 
     # ------------------------------------------------------------------------
     # User-Agent
@@ -236,7 +236,7 @@ def load_southplus_config() -> SouthPlusConfig | None:
 
         data["user_agent"] = user_agent
 
-        save_config("southplus", data)
+        save_config("southpro", data)
 
     # ------------------------------------------------------------------------
     # 加载账号
@@ -251,9 +251,9 @@ def load_southplus_config() -> SouthPlusConfig | None:
         if "cookies" not in account:
             account["cookies"] = ""
 
-        accounts.append(SouthPlusAccountConfig(**account))
+        accounts.append(SouthProAccountConfig(**account))
 
-    return SouthPlusConfig(
+    return SouthProConfig(
         encryption_key=encryption_key,
         user_agent=user_agent,
         accounts=accounts,
@@ -261,7 +261,7 @@ def load_southplus_config() -> SouthPlusConfig | None:
 
 
 __all__ = [
-    "SouthPlusAccountConfig",
-    "SouthPlusConfig",
-    "load_southplus_config",
+    "SouthProAccountConfig",
+    "SouthProConfig",
+    "load_southpro_config",
 ]

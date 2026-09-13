@@ -1,4 +1,4 @@
-# apps/southplus/core/api.py
+# apps/southpro/core/api.py
 
 from collections.abc import Callable
 from functools import wraps
@@ -12,7 +12,7 @@ from utils.paths import logs
 from utils.request_client import RequestClient
 
 logger = get_logger(
-    name="southplus_api",
+    name="southpro_api",
     log_dir=logs(),
     fmt_type="detailed",
 )
@@ -23,8 +23,8 @@ logger = get_logger(
 # ============================================================================
 
 
-class SouthPlusEndpoints:
-    """SouthPlus API 端点配置。"""
+class SouthProEndpoints:
+    """SouthPro API 端点配置。"""
 
     BASE_URL = "https://bbs.south-plus.org"
 
@@ -42,8 +42,8 @@ class SouthPlusEndpoints:
 # ============================================================================
 
 
-class SouthPlusAPIError(Exception):
-    """SouthPlus API 请求异常。"""
+class SouthProAPIError(Exception):
+    """SouthPro API 请求异常。"""
 
     def __init__(
         self,
@@ -72,11 +72,11 @@ def handle_response(
 
     HTTP 非 2xx 响应：
         记录详细日志。
-        抛出 SouthPlusAPIError。
+        抛出 SouthProAPIError。
 
     HTTP 请求异常：
         记录异常日志。
-        转换为 SouthPlusAPIError，并保留原始异常。
+        转换为 SouthProAPIError，并保留原始异常。
 
     其他未预期异常：
         原样继续向上抛出。
@@ -106,7 +106,7 @@ def handle_response(
                 response.text,
             )
 
-            raise SouthPlusAPIError(
+            raise SouthProAPIError(
                 status_code=response.status_code,
                 message=response.reason,
             )
@@ -117,12 +117,12 @@ def handle_response(
                 func.__name__,
             )
 
-            raise SouthPlusAPIError(
+            raise SouthProAPIError(
                 status_code=0,
                 message=str(exc),
             ) from exc
 
-        except SouthPlusAPIError:
+        except SouthProAPIError:
             raise
 
         except Exception:
@@ -140,9 +140,9 @@ def handle_response(
 # ============================================================================
 
 
-class SouthPlusAPI:
+class SouthProAPI:
     """
-    SouthPlus HTTP API 调用层。
+    SouthPro HTTP API 调用层。
 
     只负责：
 
@@ -166,7 +166,7 @@ class SouthPlusAPI:
         request_client: RequestClient,
     ) -> None:
         self.client = request_client
-        self.base_url = SouthPlusEndpoints.BASE_URL
+        self.base_url = SouthProEndpoints.BASE_URL
 
     # =========================================================================
     # 基础请求
@@ -187,7 +187,7 @@ class SouthPlusAPI:
         fetch_dest: str = "document",
     ) -> dict[str, str]:
         """
-        构建 SouthPlus HTML 请求头。
+        构建 SouthPro HTML 请求头。
 
         保持旧 Server 中实际使用的浏览器请求头。
         """
@@ -271,7 +271,7 @@ class SouthPlusAPI:
         返回原始 HTTP Response。
         HTML 解析由上层负责。
         """
-        url = self._url(SouthPlusEndpoints.HTML_PROFILE)
+        url = self._url(SouthProEndpoints.HTML_PROFILE)
 
         headers = self._html_headers(
             referer=f"{self.base_url}/u.php",
@@ -303,7 +303,7 @@ class SouthPlusAPI:
             /plugin.php?H_name-tasks.html
         """
 
-        url = self._url(SouthPlusEndpoints.HTML_TASKS)
+        url = self._url(SouthProEndpoints.HTML_TASKS)
 
         headers = self._html_headers(
             referer=f"{self.base_url}/index.php",
@@ -331,10 +331,10 @@ class SouthPlusAPI:
             /plugin.php?H_name-tasks-actions-newtasks.html.html
         """
 
-        url = self._url(SouthPlusEndpoints.HTML_TASKS_ACTIONS)
+        url = self._url(SouthProEndpoints.HTML_TASKS_ACTIONS)
 
         headers = self._html_headers(
-            referer=self._url(SouthPlusEndpoints.HTML_TASKS),
+            referer=self._url(SouthProEndpoints.HTML_TASKS),
         )
 
         response = self.client.get(
@@ -443,7 +443,7 @@ class SouthPlusAPI:
         这是每日 / 每周签到的公共 HTTP 请求。
         """
 
-        url = self._url(SouthPlusEndpoints.XML_SIGN)
+        url = self._url(SouthProEndpoints.XML_SIGN)
 
         params = {
             "H_name": "tasks",
@@ -453,7 +453,7 @@ class SouthPlusAPI:
         }
 
         headers = self._html_headers(
-            referer=self._url(SouthPlusEndpoints.HTML_TASKS),
+            referer=self._url(SouthProEndpoints.HTML_TASKS),
             fetch_dest="iframe",
         )
 
@@ -487,8 +487,8 @@ class SouthPlusAPI:
 
 
 __all__ = [
-    "SouthPlusAPI",
-    "SouthPlusAPIError",
-    "SouthPlusEndpoints",
+    "SouthProAPI",
+    "SouthProAPIError",
+    "SouthProEndpoints",
     "handle_response",
 ]

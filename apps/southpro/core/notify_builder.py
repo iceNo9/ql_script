@@ -1,5 +1,5 @@
 """
-SouthPlus 通知报告 Section 构建器。
+SouthPro 通知报告 Section 构建器。
 
 职责：
     将 ReportData 中的结构化数据转换成 HTML Section。
@@ -20,7 +20,7 @@ from datetime import datetime
 from html import escape
 from typing import ClassVar
 
-from apps.southplus.core.notify_dto import (
+from apps.southpro.core.notify_dto import (
     AccountInfo,
     DailyTaskInfo,
     ReportData,

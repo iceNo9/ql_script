@@ -1,12 +1,12 @@
-# apps/southplus/core/southplus.py
+# apps/southpro/core/southpro.py
 
 """
-SouthPlus 应用编排。
+SouthPro 应用编排。
 
 职责：
-- 管理 SouthPlus 当前账号。
+- 管理 SouthPro 当前账号。
 - 管理 API / Parser / Repository。
-- 管理 SouthPlus 认证流程。
+- 管理 SouthPro 认证流程。
 - 编排日常任务、周常任务以及用户信息同步。
 - 构建通知报告。
 
@@ -28,30 +28,30 @@ from typing import Any, TypeVar
 
 import cookiesparser
 
-from apps.southplus.core.api import (
-    SouthPlusAPI,
-    SouthPlusAPIError,
+from apps.southpro.core.api import (
+    SouthProAPI,
+    SouthProAPIError,
 )
-from apps.southplus.core.config import (
-    SouthPlusAccountConfig,
-    SouthPlusConfig,
+from apps.southpro.core.config import (
+    SouthProAccountConfig,
+    SouthProConfig,
 )
-from apps.southplus.core.models import Account
-from apps.southplus.core.notify_builder import SectionBuilder
-from apps.southplus.core.notify_dto import (
+from apps.southpro.core.models import Account
+from apps.southpro.core.notify_builder import SectionBuilder
+from apps.southpro.core.notify_dto import (
     AccountInfo,
     AppConfig,
     DailyTaskInfo,
     ReportData,
     WeeklyTaskInfo,
 )
-from apps.southplus.core.parser import (
-    SouthPlusDailyCompleteResult,
-    SouthPlusParser,
-    SouthPlusProfileResult,
-    SouthPlusWeeklyCompleteResult,
+from apps.southpro.core.parser import (
+    SouthProDailyCompleteResult,
+    SouthProParser,
+    SouthProProfileResult,
+    SouthProWeeklyCompleteResult,
 )
-from apps.southplus.core.repositories import (
+from apps.southpro.core.repositories import (
     AccountRepository,
     DailyCompleteLogRepository,
     NotificationLogRepository,
@@ -68,7 +68,7 @@ from utils.request_client import RequestClient
 from utils.timezone import now_local, now_utc, utc_to_local
 
 logger = get_logger(
-    name="southplus_client",
+    name="southpro_client",
     log_dir=logs(),
     fmt_type="detailed",
 )
@@ -104,20 +104,20 @@ def authenticated(
     func: Callable[..., T],
 ) -> Callable[..., T]:
     """
-    SouthPlus API 认证装饰器。
+    SouthPro API 认证装饰器。
 
     按照以下优先级逐级尝试认证：
 
     1. 数据库 Cookie
     2. 配置文件 Cookie
 
-    后续如果 SouthPlus 增加登录 API，
+    后续如果 SouthPro 增加登录 API，
     可以继续在认证链末尾增加登录方式。
     """
 
     @wraps(func)
     def wrapper(
-        self: "SouthPlusClient",
+        self: "SouthProClient",
         *args: Any,
         **kwargs: Any,
     ) -> T:
@@ -125,7 +125,7 @@ def authenticated(
 
         if account is None:
             raise RuntimeError(
-                "当前没有选择 SouthPlus 账号",
+                "当前没有选择 SouthPro 账号",
             )
 
         # ================================================================
@@ -149,7 +149,7 @@ def authenticated(
             self._get_config_cookies,
         )
 
-        last_error: SouthPlusAPIError | None = None
+        last_error: SouthProAPIError | None = None
 
         for auth_method in auth_methods:
             try:
@@ -189,7 +189,7 @@ def authenticated(
 
                 return result
 
-            except SouthPlusAPIError as exc:
+            except SouthProAPIError as exc:
                 last_error = exc
 
                 logger.warning(
@@ -200,7 +200,7 @@ def authenticated(
         if last_error is not None:
             raise last_error
 
-        raise SouthPlusAPIError(
+        raise SouthProAPIError(
             status_code=0,
             message="所有认证方式均不可用",
         )
@@ -209,37 +209,37 @@ def authenticated(
 
 
 # ============================================================================
-# SouthPlus Client
+# SouthPro Client
 # ============================================================================
 
 
-class SouthPlusClient:
-    """SouthPlus 应用客户端。"""
+class SouthProClient:
+    """SouthPro 应用客户端。"""
 
     def __init__(
         self,
         global_config: GlobalConfig,
-        southplus_config: SouthPlusConfig,
+        southpro_config: SouthProConfig,
     ) -> None:
         """
-        初始化 SouthPlus 客户端。
+        初始化 SouthPro 客户端。
 
         Args:
             global_config:
                 全局配置。
 
-            southplus_config:
-                SouthPlus 应用配置。
+            southpro_config:
+                SouthPro 应用配置。
         """
 
         self.global_config = global_config
-        self.southplus_config = southplus_config
+        self.southpro_config = southpro_config
 
         # ================================================================
         # 当前账号
         # ================================================================
 
-        self._current_account: SouthPlusAccountConfig | None = None
+        self._current_account: SouthProAccountConfig | None = None
 
         # ================================================================
         # 基础资源
@@ -248,7 +248,7 @@ class SouthPlusClient:
         self.session = get_session()
 
         self.crypto = Crypto(
-            southplus_config.encryption_key,
+            southpro_config.encryption_key,
         )
 
         # ================================================================
@@ -256,7 +256,7 @@ class SouthPlusClient:
         # ================================================================
 
         proxy = global_config.proxy
-        user_agent = southplus_config.user_agent
+        user_agent = southpro_config.user_agent
 
         self.request_client = RequestClient(
             http_proxies=(proxy.http if proxy.enabled else []),
@@ -274,14 +274,14 @@ class SouthPlusClient:
             )
 
         # ================================================================
-        # SouthPlus API / Parser
+        # SouthPro API / Parser
         # ================================================================
 
-        self.api = SouthPlusAPI(
+        self.api = SouthProAPI(
             self.request_client,
         )
 
-        self.parser = SouthPlusParser()
+        self.parser = SouthProParser()
 
         # ================================================================
         # Repository
@@ -314,7 +314,7 @@ class SouthPlusClient:
 
     def _get_or_create_db_account(
         self,
-        account: SouthPlusAccountConfig,
+        account: SouthProAccountConfig,
     ) -> Account:
         """获取数据库账号，不存在则创建。"""
 
@@ -326,7 +326,7 @@ class SouthPlusClient:
             return db_account
 
         logger.info(
-            "数据库中不存在 SouthPlus 账号，创建账号: username=%s",
+            "数据库中不存在 SouthPro 账号，创建账号: username=%s",
             account.username,
         )
 
@@ -381,7 +381,7 @@ class SouthPlusClient:
 
     def _get_database_cookies(
         self,
-        account: SouthPlusAccountConfig,
+        account: SouthProAccountConfig,
     ) -> dict[str, str] | None:
         """
         获取数据库 Cookie。
@@ -426,7 +426,7 @@ class SouthPlusClient:
 
     def _get_config_cookies(
         self,
-        account: SouthPlusAccountConfig,
+        account: SouthProAccountConfig,
     ) -> dict[str, str] | None:
         """
         获取配置文件 Cookie。
@@ -455,7 +455,7 @@ class SouthPlusClient:
 
     def _save_cookies(
         self,
-        account: SouthPlusAccountConfig,
+        account: SouthProAccountConfig,
         cookies: dict[str, str],
         db_account: Account | None = None,
     ) -> None:
@@ -464,7 +464,7 @@ class SouthPlusClient:
 
         Args:
             account:
-                SouthPlus 账号配置。
+                SouthPro 账号配置。
 
             cookies:
                 验证成功的 Cookie 字典。
@@ -511,7 +511,7 @@ class SouthPlusClient:
     @authenticated
     def _complete_daily(
         self,
-    ) -> SouthPlusDailyCompleteResult:
+    ) -> SouthProDailyCompleteResult:
         """
         执行当前账号日常任务。
 
@@ -552,11 +552,11 @@ class SouthPlusClient:
 
         if account is None:
             raise RuntimeError(
-                "当前没有选择 SouthPlus 账号",
+                "当前没有选择 SouthPro 账号",
             )
 
         logger.info(
-            "开始完成 SouthPlus 日常任务: username=%s",
+            "开始完成 SouthPro 日常任务: username=%s",
             account.username,
         )
 
@@ -570,7 +570,7 @@ class SouthPlusClient:
                 account.username,
             )
 
-            return SouthPlusDailyCompleteResult.failure(
+            return SouthProDailyCompleteResult.failure(
                 "数据库账号不存在",
             )
 
@@ -599,7 +599,7 @@ class SouthPlusClient:
                         DAILY_INTERVAL,
                     )
 
-                    return SouthPlusDailyCompleteResult(
+                    return SouthProDailyCompleteResult(
                         success=True,
                         completed=False,
                         delta_points_sp=0,
@@ -629,7 +629,7 @@ class SouthPlusClient:
 
                 self.session.commit()
 
-                return SouthPlusDailyCompleteResult.failure(
+                return SouthProDailyCompleteResult.failure(
                     error,
                 )
 
@@ -646,7 +646,7 @@ class SouthPlusClient:
                     error,
                 )
 
-                return SouthPlusDailyCompleteResult(
+                return SouthProDailyCompleteResult(
                     success=True,
                     completed=False,
                     delta_points_sp=0,
@@ -677,7 +677,7 @@ class SouthPlusClient:
 
                 self.session.commit()
 
-                return SouthPlusDailyCompleteResult.failure(
+                return SouthProDailyCompleteResult.failure(
                     error,
                 )
 
@@ -735,7 +735,7 @@ class SouthPlusClient:
             self.session.commit()
 
             logger.info(
-                "SouthPlus 日常任务完成: "
+                "SouthPro 日常任务完成: "
                 "username=%s, delta_points_sp=%d, points_sp=%d",
                 account.username,
                 complete_result.delta_points_sp,
@@ -746,7 +746,7 @@ class SouthPlusClient:
 
         except Exception as exc:
             logger.exception(
-                "SouthPlus 日常任务异常: username=%s",
+                "SouthPro 日常任务异常: username=%s",
                 account.username,
             )
 
@@ -757,7 +757,7 @@ class SouthPlusClient:
 
             self.session.commit()
 
-            return SouthPlusDailyCompleteResult.failure(
+            return SouthProDailyCompleteResult.failure(
                 "日常任务异常",
             )
 
@@ -802,13 +802,13 @@ class SouthPlusClient:
     def complete_daily(
         self,
         username: str,
-    ) -> SouthPlusDailyCompleteResult:
+    ) -> SouthProDailyCompleteResult:
         """指定账号执行日常任务。"""
 
         account = next(
             (
                 account
-                for account in self.southplus_config.accounts
+                for account in self.southpro_config.accounts
                 if account.username == username
             ),
             None,
@@ -816,11 +816,11 @@ class SouthPlusClient:
 
         if account is None:
             logger.error(
-                "未找到 SouthPlus 账号: username=%s",
+                "未找到 SouthPro 账号: username=%s",
                 username,
             )
 
-            return SouthPlusDailyCompleteResult.failure(
+            return SouthProDailyCompleteResult.failure(
                 f"未找到账号: {username}",
             )
 
@@ -838,22 +838,22 @@ class SouthPlusClient:
 
     def complete_daily_all(
         self,
-    ) -> dict[str, SouthPlusDailyCompleteResult | None]:
+    ) -> dict[str, SouthProDailyCompleteResult | None]:
         """遍历全部账号执行日常任务。"""
 
         results: dict[
             str,
-            SouthPlusDailyCompleteResult | None,
+            SouthProDailyCompleteResult | None,
         ] = {}
 
-        if not self.southplus_config.accounts:
+        if not self.southpro_config.accounts:
             logger.warning(
-                "没有配置 SouthPlus 账号，跳过日常任务",
+                "没有配置 SouthPro 账号，跳过日常任务",
             )
 
             return results
 
-        for account in self.southplus_config.accounts:
+        for account in self.southpro_config.accounts:
             self._current_account = account
 
             try:
@@ -885,7 +885,7 @@ class SouthPlusClient:
     @authenticated
     def _complete_weekly(
         self,
-    ) -> SouthPlusWeeklyCompleteResult:
+    ) -> SouthProWeeklyCompleteResult:
         """
         执行当前账号周常任务。
 
@@ -926,11 +926,11 @@ class SouthPlusClient:
 
         if account is None:
             raise RuntimeError(
-                "当前没有选择 SouthPlus 账号",
+                "当前没有选择 SouthPro 账号",
             )
 
         logger.info(
-            "开始完成 SouthPlus 周常任务: username=%s",
+            "开始完成 SouthPro 周常任务: username=%s",
             account.username,
         )
 
@@ -944,7 +944,7 @@ class SouthPlusClient:
                 account.username,
             )
 
-            return SouthPlusWeeklyCompleteResult.failure(
+            return SouthProWeeklyCompleteResult.failure(
                 "数据库账号不存在",
             )
 
@@ -973,7 +973,7 @@ class SouthPlusClient:
                         WEEKLY_INTERVAL,
                     )
 
-                    return SouthPlusWeeklyCompleteResult(
+                    return SouthProWeeklyCompleteResult(
                         success=True,
                         completed=False,
                         delta_points_sp=0,
@@ -1003,7 +1003,7 @@ class SouthPlusClient:
 
                 self.session.commit()
 
-                return SouthPlusWeeklyCompleteResult.failure(
+                return SouthProWeeklyCompleteResult.failure(
                     error,
                 )
 
@@ -1020,7 +1020,7 @@ class SouthPlusClient:
                     error,
                 )
 
-                return SouthPlusWeeklyCompleteResult(
+                return SouthProWeeklyCompleteResult(
                     success=True,
                     completed=False,
                     delta_points_sp=0,
@@ -1051,7 +1051,7 @@ class SouthPlusClient:
 
                 self.session.commit()
 
-                return SouthPlusWeeklyCompleteResult.failure(
+                return SouthProWeeklyCompleteResult.failure(
                     error,
                 )
 
@@ -1109,7 +1109,7 @@ class SouthPlusClient:
             self.session.commit()
 
             logger.info(
-                "SouthPlus 周常任务完成: "
+                "SouthPro 周常任务完成: "
                 "username=%s, delta_points_sp=%d, points_sp=%d",
                 account.username,
                 complete_result.delta_points_sp,
@@ -1120,7 +1120,7 @@ class SouthPlusClient:
 
         except Exception as exc:
             logger.exception(
-                "SouthPlus 周常任务异常: username=%s",
+                "SouthPro 周常任务异常: username=%s",
                 account.username,
             )
 
@@ -1131,7 +1131,7 @@ class SouthPlusClient:
 
             self.session.commit()
 
-            return SouthPlusWeeklyCompleteResult.failure(
+            return SouthProWeeklyCompleteResult.failure(
                 "周常任务异常",
             )
 
@@ -1176,13 +1176,13 @@ class SouthPlusClient:
     def complete_weekly(
         self,
         username: str,
-    ) -> SouthPlusWeeklyCompleteResult:
+    ) -> SouthProWeeklyCompleteResult:
         """指定账号执行周常任务。"""
 
         account = next(
             (
                 account
-                for account in self.southplus_config.accounts
+                for account in self.southpro_config.accounts
                 if account.username == username
             ),
             None,
@@ -1190,11 +1190,11 @@ class SouthPlusClient:
 
         if account is None:
             logger.error(
-                "未找到 SouthPlus 账号: username=%s",
+                "未找到 SouthPro 账号: username=%s",
                 username,
             )
 
-            return SouthPlusWeeklyCompleteResult.failure(
+            return SouthProWeeklyCompleteResult.failure(
                 f"未找到账号: {username}",
             )
 
@@ -1212,22 +1212,22 @@ class SouthPlusClient:
 
     def complete_weekly_all(
         self,
-    ) -> dict[str, SouthPlusWeeklyCompleteResult | None]:
+    ) -> dict[str, SouthProWeeklyCompleteResult | None]:
         """遍历全部账号执行周常任务。"""
 
         results: dict[
             str,
-            SouthPlusWeeklyCompleteResult | None,
+            SouthProWeeklyCompleteResult | None,
         ] = {}
 
-        if not self.southplus_config.accounts:
+        if not self.southpro_config.accounts:
             logger.warning(
-                "没有配置 SouthPlus 账号，跳过周常任务",
+                "没有配置 SouthPro 账号，跳过周常任务",
             )
 
             return results
 
-        for account in self.southplus_config.accounts:
+        for account in self.southpro_config.accounts:
             self._current_account = account
 
             try:
@@ -1259,18 +1259,18 @@ class SouthPlusClient:
     @authenticated
     def _get_profile(
         self,
-    ) -> SouthPlusProfileResult | None:
+    ) -> SouthProProfileResult | None:
         """获取当前账号 Profile。"""
 
         account = self._current_account
 
         if account is None:
             raise RuntimeError(
-                "当前没有选择 SouthPlus 账号",
+                "当前没有选择 SouthPro 账号",
             )
 
         logger.info(
-            "获取 SouthPlus Profile: username=%s",
+            "获取 SouthPro Profile: username=%s",
             account.username,
         )
 
@@ -1283,7 +1283,7 @@ class SouthPlusClient:
 
             if not result.success:
                 logger.warning(
-                    "获取 SouthPlus Profile 失败: " "username=%s, error=%s",
+                    "获取 SouthPro Profile 失败: " "username=%s, error=%s",
                     account.username,
                     result.error,
                 )
@@ -1311,7 +1311,7 @@ class SouthPlusClient:
 
         except Exception:
             logger.exception(
-                "获取 SouthPlus Profile 异常: username=%s",
+                "获取 SouthPro Profile 异常: username=%s",
                 account.username,
             )
 
@@ -1320,13 +1320,13 @@ class SouthPlusClient:
     def get_profile(
         self,
         username: str,
-    ) -> SouthPlusProfileResult | None:
+    ) -> SouthProProfileResult | None:
         """获取指定账号 Profile。"""
 
         account = next(
             (
                 account
-                for account in self.southplus_config.accounts
+                for account in self.southpro_config.accounts
                 if account.username == username
             ),
             None,
@@ -1334,7 +1334,7 @@ class SouthPlusClient:
 
         if account is None:
             logger.error(
-                "未找到 SouthPlus 账号: username=%s",
+                "未找到 SouthPro 账号: username=%s",
                 username,
             )
 
@@ -1354,22 +1354,22 @@ class SouthPlusClient:
 
     def get_profile_all(
         self,
-    ) -> dict[str, SouthPlusProfileResult | None]:
+    ) -> dict[str, SouthProProfileResult | None]:
         """获取所有账号 Profile。"""
 
         results: dict[
             str,
-            SouthPlusProfileResult | None,
+            SouthProProfileResult | None,
         ] = {}
 
-        if not self.southplus_config.accounts:
+        if not self.southpro_config.accounts:
             logger.warning(
-                "没有配置 SouthPlus 账号，" "跳过获取 Profile",
+                "没有配置 SouthPro 账号，" "跳过获取 Profile",
             )
 
             return results
 
-        for account in self.southplus_config.accounts:
+        for account in self.southpro_config.accounts:
             try:
                 results[account.username] = self.get_profile(
                     account.username,
@@ -1392,10 +1392,10 @@ class SouthPlusClient:
     # ========================================================================
 
     def build_report_html(self) -> str:
-        """构建 SouthPlus HTML 运行报告。"""
+        """构建 SouthPro HTML 运行报告。"""
 
         app = AppConfig(
-            name="SouthPlus",
+            name="SouthPro",
             icon="💎",
             gradient_start="#667eea",
             gradient_end="#764ba2",
@@ -1405,11 +1405,11 @@ class SouthPlusClient:
         daily: list[DailyTaskInfo] = []
         weekly: list[WeeklyTaskInfo] = []
 
-        account_configs = self.southplus_config.accounts
+        account_configs = self.southpro_config.accounts
 
         if not account_configs:
             logger.warning(
-                "没有配置 SouthPlus 账号，" "跳过报告统计",
+                "没有配置 SouthPro 账号，" "跳过报告统计",
             )
 
         else:
@@ -1541,7 +1541,7 @@ class SouthPlusClient:
         html: str | None = None,
     ) -> bool:
         """
-        发送 SouthPlus 运行报告。
+        发送 SouthPro 运行报告。
 
         每天最多成功发送一次完整运行报告。
 
@@ -1568,7 +1568,7 @@ class SouthPlusClient:
 
             if latest_log.success and latest_sent_at.date() == now.date():
                 logger.info(
-                    "SouthPlus 今日通知已经发送，跳过: sent_at=%s",
+                    "SouthPro 今日通知已经发送，跳过: sent_at=%s",
                     latest_sent_at,
                 )
 
@@ -1587,14 +1587,14 @@ class SouthPlusClient:
 
         try:
             send(
-                title="SouthPlus 任务执行报告",
+                title="SouthPro 任务执行报告",
                 content=html,
                 SMTP_HTML="true",
             )
 
         except Exception as exc:
             logger.exception(
-                "SouthPlus 运行报告发送失败",
+                "SouthPro 运行报告发送失败",
             )
 
             self.notification_log_repository.create(
@@ -1613,20 +1613,20 @@ class SouthPlusClient:
 
         self.notification_log_repository.create(
             success=True,
-            message="SouthPlus 运行报告发送成功",
+            message="SouthPro 运行报告发送成功",
             sent_at=now_utc(),
         )
 
         self.session.commit()
 
         logger.info(
-            "SouthPlus 运行报告发送完成",
+            "SouthPro 运行报告发送完成",
         )
 
         return True
 
 
 __all__ = [
-    "SouthPlusClient",
+    "SouthProClient",
     "authenticated",
 ]

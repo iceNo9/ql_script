@@ -1,5 +1,5 @@
 """
-SouthPlus API Response Parser
+SouthPro API Response Parser
 
 负责：
 - 将 API Response 解析为对应的 Result 对象
@@ -15,7 +15,7 @@ SouthPlus API Response Parser
 - 认证方式切换
 - 业务逻辑
 
-SouthPlus 当前接口主要返回 HTML / XML AJAX 响应。
+SouthPro 当前接口主要返回 HTML / XML AJAX 响应。
 不同 Result 根据实际响应格式自行实现 from_response()。
 """
 
@@ -35,7 +35,7 @@ from utils.log import get_logger
 from utils.paths import logs
 
 logger = get_logger(
-    name="southplus_parser",
+    name="southpro_parser",
     log_dir=logs(),
     fmt_type="detailed",
 )
@@ -48,7 +48,7 @@ logger = get_logger(
 
 R = TypeVar(
     "R",
-    bound="SouthPlusBaseResult",
+    bound="SouthProBaseResult",
 )
 
 
@@ -61,9 +61,9 @@ def _parse_task_result(
     html: str,
 ) -> tuple[bool, str]:
     """
-    解析 SouthPlus 任务操作结果。
+    解析 SouthPro 任务操作结果。
 
-    SouthPlus 任务相关 AJAX 接口返回类似：
+    SouthPro 任务相关 AJAX 接口返回类似：
 
         <?xml version="1.0" encoding="utf-8"?>
         <ajax><![CDATA[success    xxx]]></ajax>
@@ -78,7 +78,7 @@ def _parse_task_result(
             - bool:
                 业务操作是否成功。
             - str:
-                SouthPlus 返回的消息。
+                SouthPro 返回的消息。
 
     Raises:
         ValueError:
@@ -139,9 +139,9 @@ def _parse_task_result(
 
 
 @dataclass
-class SouthPlusBaseResult(ABC):
+class SouthProBaseResult(ABC):
     """
-    所有 SouthPlus Parser Result 的基类。
+    所有 SouthPro Parser Result 的基类。
 
     success 的含义非常明确：
 
@@ -214,13 +214,13 @@ class SouthPlusBaseResult(ABC):
 
 
 @dataclass
-class SouthPlusProfileResult(SouthPlusBaseResult):
+class SouthProProfileResult(SouthProBaseResult):
     """
-    SouthPlus 用户 Profile 页面解析结果。
+    SouthPro 用户 Profile 页面解析结果。
 
     对应 API：
 
-        SouthPlusAPI.get_profile()
+        SouthProAPI.get_profile()
 
     当前解析：
 
@@ -299,13 +299,13 @@ class SouthPlusProfileResult(SouthPlusBaseResult):
 
 
 @dataclass
-class SouthPlusTasksActionsResult(SouthPlusBaseResult):
+class SouthProTasksActionsResult(SouthProBaseResult):
     """
-    SouthPlus 进行中任务页面解析结果。
+    SouthPro 进行中任务页面解析结果。
 
     对应 API：
 
-        SouthPlusAPI.get_tasks_actions()
+        SouthProAPI.get_tasks_actions()
 
     用于判断当前是否可以领取：
 
@@ -368,13 +368,13 @@ class SouthPlusTasksActionsResult(SouthPlusBaseResult):
 
 
 @dataclass
-class SouthPlusDailyApplyResult(SouthPlusBaseResult):
+class SouthProDailyApplyResult(SouthProBaseResult):
     """
-    SouthPlus 每日任务申请结果。
+    SouthPro 每日任务申请结果。
 
     对应 API：
 
-        SouthPlusAPI.apply_daily()
+        SouthProAPI.apply_daily()
 
     success：
         Response 是否成功按照解析规则解析。
@@ -411,13 +411,13 @@ class SouthPlusDailyApplyResult(SouthPlusBaseResult):
 
 
 @dataclass
-class SouthPlusWeeklyApplyResult(SouthPlusBaseResult):
+class SouthProWeeklyApplyResult(SouthProBaseResult):
     """
-    SouthPlus 每周任务申请结果。
+    SouthPro 每周任务申请结果。
 
     对应 API：
 
-        SouthPlusAPI.apply_weekly()
+        SouthProAPI.apply_weekly()
 
     success：
         Response 是否成功按照解析规则解析。
@@ -454,13 +454,13 @@ class SouthPlusWeeklyApplyResult(SouthPlusBaseResult):
 
 
 @dataclass
-class SouthPlusDailyCompleteResult(SouthPlusBaseResult):
+class SouthProDailyCompleteResult(SouthProBaseResult):
     """
-    SouthPlus 每日任务完成结果。
+    SouthPro 每日任务完成结果。
 
     对应 API：
 
-        SouthPlusAPI.complete_daily()
+        SouthProAPI.complete_daily()
 
     success：
         Response 是否成功按照解析规则解析。
@@ -503,13 +503,13 @@ class SouthPlusDailyCompleteResult(SouthPlusBaseResult):
 
 
 @dataclass
-class SouthPlusWeeklyCompleteResult(SouthPlusBaseResult):
+class SouthProWeeklyCompleteResult(SouthProBaseResult):
     """
-    SouthPlus 每周任务完成结果。
+    SouthPro 每周任务完成结果。
 
     对应 API：
 
-        SouthPlusAPI.complete_weekly()
+        SouthProAPI.complete_weekly()
 
     success：
         Response 是否成功按照解析规则解析。
@@ -749,7 +749,7 @@ def _log_parse_failure(
 
     log_message = (
         f"\n{'=' * 80}\n"
-        f"SouthPlus API 响应解析失败，"
+        f"SouthPro API 响应解析失败，"
         f"响应规则可能已发生变化。\n"
         f"请检查以下完整响应信息以调整解析规则：\n"
         f"{'-' * 80}\n"
@@ -771,7 +771,7 @@ def parse_result(
     result_class: type[R],
 ) -> Callable:
     """
-    统一处理 SouthPlus Response 解析。
+    统一处理 SouthPro Response 解析。
 
     Args:
         result_class:
@@ -807,12 +807,12 @@ def parse_result(
         isinstance(result_class, type)
         and issubclass(
             result_class,
-            SouthPlusBaseResult,
+            SouthProBaseResult,
         )
     ):
         raise TypeError(
             "result_class must be a subclass of "
-            "SouthPlusBaseResult, "
+            "SouthProBaseResult, "
             f"got {result_class}"
         )
 
@@ -863,9 +863,9 @@ def parse_result(
 # ============================================================
 
 
-class SouthPlusParser:
+class SouthProParser:
     """
-    SouthPlus API Response 解析器。
+    SouthPro API Response 解析器。
 
     Parser 本身不负责具体字段解析。
 
@@ -885,15 +885,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusProfileResult,
+        SouthProProfileResult,
     )
     def parse_profile(
         self,
         response: requests.Response,
-    ) -> SouthPlusProfileResult:
+    ) -> SouthProProfileResult:
         """解析 Profile 页面。"""
 
-        return SouthPlusProfileResult.from_response(
+        return SouthProProfileResult.from_response(
             response,
         )
 
@@ -902,15 +902,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusTasksActionsResult,
+        SouthProTasksActionsResult,
     )
     def parse_tasks_actions(
         self,
         response: requests.Response,
-    ) -> SouthPlusTasksActionsResult:
+    ) -> SouthProTasksActionsResult:
         """解析进行中的任务页面。"""
 
-        return SouthPlusTasksActionsResult.from_response(
+        return SouthProTasksActionsResult.from_response(
             response,
         )
 
@@ -919,15 +919,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusDailyApplyResult,
+        SouthProDailyApplyResult,
     )
     def parse_apply_daily(
         self,
         response: requests.Response,
-    ) -> SouthPlusDailyApplyResult:
+    ) -> SouthProDailyApplyResult:
         """解析每日任务申请响应。"""
 
-        return SouthPlusDailyApplyResult.from_response(
+        return SouthProDailyApplyResult.from_response(
             response,
         )
 
@@ -936,15 +936,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusWeeklyApplyResult,
+        SouthProWeeklyApplyResult,
     )
     def parse_apply_weekly(
         self,
         response: requests.Response,
-    ) -> SouthPlusWeeklyApplyResult:
+    ) -> SouthProWeeklyApplyResult:
         """解析每周任务申请响应。"""
 
-        return SouthPlusWeeklyApplyResult.from_response(
+        return SouthProWeeklyApplyResult.from_response(
             response,
         )
 
@@ -953,15 +953,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusDailyCompleteResult,
+        SouthProDailyCompleteResult,
     )
     def parse_complete_daily(
         self,
         response: requests.Response,
-    ) -> SouthPlusDailyCompleteResult:
+    ) -> SouthProDailyCompleteResult:
         """解析每日任务完成响应。"""
 
-        return SouthPlusDailyCompleteResult.from_response(
+        return SouthProDailyCompleteResult.from_response(
             response,
         )
 
@@ -970,15 +970,15 @@ class SouthPlusParser:
     # ------------------------------------------------------------
 
     @parse_result(
-        SouthPlusWeeklyCompleteResult,
+        SouthProWeeklyCompleteResult,
     )
     def parse_complete_weekly(
         self,
         response: requests.Response,
-    ) -> SouthPlusWeeklyCompleteResult:
+    ) -> SouthProWeeklyCompleteResult:
         """解析每周任务完成响应。"""
 
-        return SouthPlusWeeklyCompleteResult.from_response(
+        return SouthProWeeklyCompleteResult.from_response(
             response,
         )
 
@@ -989,13 +989,13 @@ class SouthPlusParser:
 
 
 __all__ = [
-    "SouthPlusBaseResult",
-    "SouthPlusDailyApplyResult",
-    "SouthPlusDailyCompleteResult",
-    "SouthPlusParser",
-    "SouthPlusProfileResult",
-    "SouthPlusTasksActionsResult",
-    "SouthPlusWeeklyApplyResult",
-    "SouthPlusWeeklyCompleteResult",
+    "SouthProBaseResult",
+    "SouthProDailyApplyResult",
+    "SouthProDailyCompleteResult",
+    "SouthProParser",
+    "SouthProProfileResult",
+    "SouthProTasksActionsResult",
+    "SouthProWeeklyApplyResult",
+    "SouthProWeeklyCompleteResult",
     "parse_result",
 ]

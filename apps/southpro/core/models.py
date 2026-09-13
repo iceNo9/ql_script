@@ -1,9 +1,9 @@
-# apps/southplus/core/models.py
+# apps/southpro/core/models.py
 
 """
-SouthPlus 数据库实体定义。
+SouthPro 数据库实体定义。
 
-定义所有与 SouthPlus 相关的数据表。
+定义所有与 SouthPro 相关的数据表。
 """
 
 from datetime import datetime
@@ -24,12 +24,12 @@ from utils.database import Base
 
 class Account(Base):
     """
-    SouthPlus 账号表。
+    SouthPro 账号表。
 
     存储账号基础信息、Cookie、SP Point 以及任务完成状态。
     """
 
-    __tablename__ = "southplus_accounts"
+    __tablename__ = "southpro_accounts"
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -123,12 +123,12 @@ class Account(Base):
 
 class DailyCompleteLog(Base):
     """
-    SouthPlus 日常任务完成日志表。
+    SouthPro 日常任务完成日志表。
 
     记录每次日常任务完成的结果、完成时间以及获得的 SP Point 变化量。
     """
 
-    __tablename__ = "southplus_daily_complete_logs"
+    __tablename__ = "southpro_daily_complete_logs"
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -138,7 +138,7 @@ class DailyCompleteLog(Base):
 
     account_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("southplus_accounts.id"),
+        ForeignKey("southpro_accounts.id"),
         nullable=False,
         index=True,
     )
@@ -189,12 +189,12 @@ class DailyCompleteLog(Base):
 
 class WeeklyCompleteLog(Base):
     """
-    SouthPlus 周常任务完成日志表。
+    SouthPro 周常任务完成日志表。
 
     记录每次周常任务完成的结果、完成时间以及获得的 SP Point 变化量。
     """
 
-    __tablename__ = "southplus_weekly_complete_logs"
+    __tablename__ = "southpro_weekly_complete_logs"
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -204,7 +204,7 @@ class WeeklyCompleteLog(Base):
 
     account_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("southplus_accounts.id"),
+        ForeignKey("southpro_accounts.id"),
         nullable=False,
         index=True,
     )
@@ -255,13 +255,13 @@ class WeeklyCompleteLog(Base):
 
 class NotificationLog(Base):
     """
-    SouthPlus 通知发送日志表。
+    SouthPro 通知发送日志表。
 
-    记录 SouthPlus 整体通知的发送结果。
+    记录 SouthPro 整体通知的发送结果。
     每天最多尝试发送一次通知。
     """
 
-    __tablename__ = "southplus_notification_logs"
+    __tablename__ = "southpro_notification_logs"
 
     id: Mapped[int] = mapped_column(
         BigInteger,

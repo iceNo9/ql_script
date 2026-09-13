@@ -1,25 +1,25 @@
-# apps/southplus/main.py
+# apps/southpro/main.py
 
 import sys
 
-from apps.southplus.core.config import load_southplus_config
-from apps.southplus.core.repositories import init_database
-from apps.southplus.core.server import SouthPlusClient
+from apps.southpro.core.config import load_southpro_config
+from apps.southpro.core.repositories import init_database
+from apps.southpro.core.server import SouthProClient
 from utils.config import get_config_path, load_global_config
 from utils.log import get_logger
 from utils.paths import logs
 
 logger = get_logger(
-    name="southplus_main",
+    name="southpro_main",
     log_dir=logs(),
     fmt_type="detailed",
 )
 
 
 def main():
-    """SouthPlus 任务主入口。"""
+    """SouthPro 任务主入口。"""
 
-    client: SouthPlusClient | None = None
+    client: SouthProClient | None = None
 
     try:
         # ================================================================
@@ -33,16 +33,16 @@ def main():
         logger.info("全局配置加载完成")
 
         # ================================================================
-        # 2. 加载 SouthPlus 配置
+        # 2. 加载 SouthPro 配置
         # ================================================================
 
-        logger.info("开始加载 SouthPlus 配置...")
+        logger.info("开始加载 SouthPro 配置...")
 
-        southplus_config = load_southplus_config()
+        southpro_config = load_southpro_config()
 
-        if not southplus_config:
+        if not southpro_config:
             message = (
-                "SouthPlus 配置加载失败，请检查 " f"{get_config_path('southplus')} 文件"
+                "SouthPro 配置加载失败，请检查 " f"{get_config_path('southpro')} 文件"
             )
 
             logger.error(message)
@@ -57,9 +57,9 @@ def main():
         # 用户列表为空
         # ------------------------------------------------------------
 
-        if not southplus_config.accounts:
+        if not southpro_config.accounts:
             message = (
-                "SouthPlus 用户列表为空，请检查 " f"{get_config_path('southplus')} 文件"
+                "SouthPro 用户列表为空，请检查 " f"{get_config_path('southpro')} 文件"
             )
 
             logger.error(message)
@@ -69,27 +69,27 @@ def main():
             sys.exit(1)
 
         logger.info(
-            "SouthPlus 配置加载完成，共 %d 个账号",
-            len(southplus_config.accounts),
+            "SouthPro 配置加载完成，共 %d 个账号",
+            len(southpro_config.accounts),
         )
 
         # ================================================================
         # 3. 初始化数据库
         # ================================================================
 
-        logger.info("开始初始化 SouthPlus 数据库...")
+        logger.info("开始初始化 SouthPro 数据库...")
 
         init_database()
 
-        logger.info("SouthPlus 数据库初始化完成")
+        logger.info("SouthPro 数据库初始化完成")
 
         # ================================================================
         # 4. 创建客户端
         # ================================================================
 
-        client = SouthPlusClient(
+        client = SouthProClient(
             global_config=global_config,
-            southplus_config=southplus_config,
+            southpro_config=southpro_config,
         )
 
         # ================================================================
@@ -134,10 +134,10 @@ def main():
 
 
 def _execute_operations(
-    client: SouthPlusClient,
+    client: SouthProClient,
 ) -> None:
     """
-    执行所有 SouthPlus 操作。
+    执行所有 SouthPro 操作。
 
     当前编排顺序：
 
@@ -148,7 +148,7 @@ def _execute_operations(
         5. 构建报告
         6. 发送通知
 
-    具体业务判断由 SouthPlusClient 负责。
+    具体业务判断由 SouthProClient 负责。
     """
 
     try:
@@ -320,16 +320,16 @@ def _execute_operations(
         # ================================================================
 
         logger.info("=" * 60)
-        logger.info("开始构建 SouthPlus 运行报告...")
+        logger.info("开始构建 SouthPro 运行报告...")
 
         try:
             html = client.build_report_html()
 
-            logger.info("SouthPlus 报告构建完成")
+            logger.info("SouthPro 报告构建完成")
 
         except Exception:
             logger.exception(
-                "构建 SouthPlus 报告失败",
+                "构建 SouthPro 报告失败",
             )
             raise
 
@@ -338,7 +338,7 @@ def _execute_operations(
         # ================================================================
 
         logger.info("=" * 60)
-        logger.info("开始发送 SouthPlus 运行报告...")
+        logger.info("开始发送 SouthPro 运行报告...")
 
         try:
             sent = client.send_report(
@@ -347,21 +347,21 @@ def _execute_operations(
 
             if sent:
                 logger.info(
-                    "SouthPlus 运行报告发送完成",
+                    "SouthPro 运行报告发送完成",
                 )
             else:
                 logger.info(
-                    "SouthPlus 运行报告未发送",
+                    "SouthPro 运行报告未发送",
                 )
 
         except Exception:
             logger.exception(
-                "SouthPlus 报告发送处理失败",
+                "SouthPro 报告发送处理失败",
             )
 
     except Exception as e:
         logger.error(
-            "执行 SouthPlus 操作时发生严重错误: %s",
+            "执行 SouthPro 操作时发生严重错误: %s",
             e,
         )
         raise

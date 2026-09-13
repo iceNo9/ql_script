@@ -1,14 +1,14 @@
-# apps/southplus/core/repositories.py
+# apps/southpro/core/repositories.py
 
 """
-SouthPlus 数据访问层。
+SouthPro 数据访问层。
 
-提供对 SouthPlus 各业务表的 CRUD 操作。
+提供对 SouthPro 各业务表的 CRUD 操作。
 
 职责：
-- 提供 SouthPlus 数据库表的 Repository。
+- 提供 SouthPro 数据库表的 Repository。
 - 负责账号 Cookie 的加解密。
-- 提供 SouthPlus 数据库表初始化函数。
+- 提供 SouthPro 数据库表初始化函数。
 
 不负责：
 - 数据库连接管理
@@ -23,7 +23,7 @@ from datetime import datetime
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from apps.southplus.core.models import (
+from apps.southpro.core.models import (
     Account,
     DailyCompleteLog,
     NotificationLog,
@@ -36,7 +36,7 @@ from utils.paths import logs
 from utils.timezone import now_utc
 
 logger = get_logger(
-    name="southplus_repositories",
+    name="southpro_repositories",
     log_dir=logs(),
     fmt_type="detailed",
 )
@@ -49,13 +49,13 @@ logger = get_logger(
 
 def init_database() -> None:
     """
-    初始化 SouthPlus 数据库表。
+    初始化 SouthPro 数据库表。
 
     如果表不存在则创建，已经存在的表不会修改。
     """
     engine = get_engine()
 
-    logger.info("检查 SouthPlus 数据库表...")
+    logger.info("检查 SouthPro 数据库表...")
 
     Base.metadata.create_all(
         bind=engine,
@@ -67,7 +67,7 @@ def init_database() -> None:
         ],
     )
 
-    logger.info("SouthPlus 数据库表初始化完成")
+    logger.info("SouthPro 数据库表初始化完成")
 
 
 # ============================================================================

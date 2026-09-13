@@ -1,5 +1,5 @@
 """
-SouthPlus 通知报告 DTO。
+SouthPro 通知报告 DTO。
 
 职责：
     定义通知模块需要的结构化数据。
@@ -22,7 +22,7 @@ from datetime import datetime
 
 @dataclass
 class AccountInfo:
-    """SouthPlus 账户信息。"""
+    """SouthPro 账户信息。"""
 
     username: str
 
@@ -53,7 +53,7 @@ class AccountInfo:
 
 @dataclass
 class DailyTaskInfo:
-    """SouthPlus 日常任务信息。"""
+    """SouthPro 日常任务信息。"""
 
     username: str
 
@@ -86,7 +86,7 @@ class DailyTaskInfo:
 
 @dataclass
 class WeeklyTaskInfo:
-    """SouthPlus 周常任务信息。"""
+    """SouthPro 周常任务信息。"""
 
     username: str
 

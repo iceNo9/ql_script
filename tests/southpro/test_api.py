@@ -1,17 +1,17 @@
-# tests/southplus/test_api.py
+# tests/southpro/test_api.py
 
 import os
 
 import cookiesparser
 from dotenv import load_dotenv
 
-from apps.southplus.core.api import SouthPlusAPI
+from apps.southpro.core.api import SouthProAPI
 from utils.log import get_logger
 from utils.paths import env, temp
 from utils.request_client import RequestClient
 
 logger = get_logger(
-    name="tests.southplus.test_api",
+    name="tests.southpro.test_api",
     fmt_type="detailed",
     log_dir=temp(),
 )
@@ -48,18 +48,18 @@ def parse_cookies(value: str) -> dict[str, str]:
 # ============================================================================
 
 USERNAME = os.environ.get(
-    "SOUTHPLUS_USERNAME",
+    "SOUTHPRO_USERNAME",
     "",
 ).strip()
 
 
 # Cookie 字符串：
 #
-# SOUTHPLUS_COOKIES="{'a': 'xxx', 'b': 'xxx'}"
+# SOUTHPRO_COOKIES="{'a': 'xxx', 'b': 'xxx'}"
 #
 # 使用 ast.literal_eval() 反序列化。
 COOKIES_STR = os.environ.get(
-    "SOUTHPLUS_COOKIES",
+    "SOUTHPRO_COOKIES",
     "",
 ).strip()
 
@@ -108,7 +108,7 @@ else:
 # API
 # ============================================================================
 
-api = SouthPlusAPI(request_client)
+api = SouthProAPI(request_client)
 
 
 # 如果有 Cookie，则设置。
@@ -129,7 +129,7 @@ else:
 # 响应文件
 # ============================================================================
 
-RESPONSE_DIR = temp() / "southplus"
+RESPONSE_DIR = temp() / "southpro"
 
 RESPONSE_DIR.mkdir(
     parents=True,
@@ -142,7 +142,7 @@ def _save_response(
     response,
 ) -> None:
     """
-    将 API 响应正文保存到 temp/southplus/。
+    将 API 响应正文保存到 temp/southpro/。
 
     Args:
         filename:
@@ -425,11 +425,11 @@ def test_api_complete_weekly():
 
 def run_all_tests():
     """
-    运行所有 SouthPlus API 测试。
+    运行所有 SouthPro API 测试。
     """
 
     logger.info(
-        "🚀 开始运行 SouthPlus API 测试",
+        "🚀 开始运行 SouthPro API 测试",
     )
 
     logger.info("=" * 60)
@@ -445,7 +445,7 @@ def run_all_tests():
         )
     else:
         logger.warning(
-            "⚠️ 未配置 SOUTHPLUS_USERNAME",
+            "⚠️ 未配置 SOUTHPRO_USERNAME",
         )
 
     if COOKIES:
@@ -455,7 +455,7 @@ def run_all_tests():
         )
     else:
         logger.warning(
-            "⚠️ 未配置 SOUTHPLUS_COOKIES，" "后续需要登录状态的请求可能失败",
+            "⚠️ 未配置 SOUTHPRO_COOKIES，" "后续需要登录状态的请求可能失败",
         )
 
     # ------------------------------------------------------------------------
@@ -608,7 +608,7 @@ def run_all_tests():
     )
 
     logger.info(
-        "✅ 所有 SouthPlus API 测试完成",
+        "✅ 所有 SouthPro API 测试完成",
     )
 
 
