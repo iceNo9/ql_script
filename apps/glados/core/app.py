@@ -48,6 +48,7 @@ from apps.glados.core.repositories import (
     TrafficHistoryRepository,
 )
 from apps.glados.core.user import UserService
+from utils.challenge_client import ChallengeClient, ChallengeError
 from utils.config import GlobalConfig
 from utils.crypto import Crypto
 from utils.database import get_session
@@ -99,9 +100,10 @@ class GladosApp:
             https_proxies=proxy.https if proxy.enabled else [],
             no_proxy=proxy.no_proxy if proxy.enabled else [],
         )
+        self.challenge_client = ChallengeClient()
 
         # API / Parser
-        self.api = GladosAPI(self.request_client)
+        self.api = GladosAPI(self.request_client, self.challenge_client)
         self.parser = GladosParser()
 
         # Repository

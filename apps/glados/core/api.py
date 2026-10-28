@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
+from utils.challenge_client import ChallengeClient, ChallengeError
 from utils.log import get_logger
 from utils.paths import logs
 from utils.request_client import RequestClient
@@ -160,8 +161,13 @@ def handle_response(
 class GladosAPI:
     """纯 API 调用层，只负责发送 HTTP 请求"""
 
-    def __init__(self, request_client: RequestClient):
+    def __init__(
+        self,
+        request_client: RequestClient,
+        challenge_client: ChallengeClient | None = None,
+    ):
         self.client = request_client
+        self.challenge = challenge_client
         self.base_url = GladosEndpoints.BASE_URL
         self._token = ""
 
@@ -190,32 +196,38 @@ class GladosAPI:
             # 移除 Authorization 头
             self.client.remove_headers(["Authorization"])
 
+    def _ensure_clearance(self, page_url: str) -> None:
+        """显式过挑战并把凭证注入主客户端。"""
+        if self.challenge is None:
+            raise GladosAPIError(
+                status_code=0,
+                message="未配置 ChallengeClient，无法处理 Cloudflare 挑战",
+            )
+
     # ==================== 认证相关 API ====================
 
     @handle_response
     def authorization(self, email: str) -> requests.Response:
-        """
-        请求发送登录验证码
+        """请求发送登录验证码（强制走镜像模式过 Cloudflare）。"""
+        if self.challenge is None:
+            raise GladosAPIError(
+                status_code=0,
+                message="未配置 ChallengeClient，无法处理 Cloudflare 挑战",
+            )
 
-        Args:
-            email: 邮箱地址
-
-        Returns:
-            HttpResponse: HTTP 响应对象
-
-        Raises:
-            requests.RequestException: HTTP 请求失败
-        """
-        url = self._url(GladosEndpoints.AUTH)
         payload = {"address": email, "site": self._site()}
 
-        # 设置 Referer 为登录页
-        self.client.set_referer(self._url(GladosEndpoints.LOGIN_PAGE))
-        self.client.update_headers({"Origin": self.base_url})
-
-        logger.debug(f"请求验证码: {email}")
-        response = self.client.post(url, json=payload)
-        return response
+        logger.debug(f"请求验证码（镜像）: {email}")
+        return self.challenge.mirror_request(
+            method="POST",
+            path=GladosEndpoints.AUTH,
+            hostname=self._site(),
+            json_body=payload,
+            extra_headers={
+                "Origin": self.base_url,
+                "Referer": self._url(GladosEndpoints.LOGIN_PAGE),
+            },
+        )
 
     @handle_response
     def login(self, email: str, mailcode: str) -> requests.Response:

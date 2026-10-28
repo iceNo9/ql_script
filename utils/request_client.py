@@ -1,4 +1,4 @@
-# common/request_client.py
+# utils\request_client.py
 
 import time
 from typing import ClassVar
@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import requests
 from requests.utils import should_bypass_proxies
 
+from utils.challenge_client import BrowserFingerprint
 from utils.log import get_logger
 from utils.paths import logs
 
@@ -584,4 +585,36 @@ class RequestClient:
             {
                 "Origin": origin,
             }
+        )
+
+    def apply_browser_fingerprint(
+        self,
+        fingerprint: BrowserFingerprint,
+    ) -> None:
+        """将浏览器指纹与 clearance cookie 注入当前会话。
+
+        注意：
+        - UA 与 sec-ch-ua 系列必须成组替换，否则 cf_clearance 失效。
+        - 只应注入到专用于目标站的 session，避免 cookie 串站。
+        """
+        headers: dict[str, str] = {
+            "User-Agent": fingerprint.user_agent,
+        }
+
+        if fingerprint.sec_ch_ua:
+            headers["sec-ch-ua"] = fingerprint.sec_ch_ua
+        if fingerprint.sec_ch_ua_mobile:
+            headers["sec-ch-ua-mobile"] = fingerprint.sec_ch_ua_mobile
+        if fingerprint.sec_ch_ua_platform:
+            headers["sec-ch-ua-platform"] = fingerprint.sec_ch_ua_platform
+
+        self.update_headers(headers)
+
+        if fingerprint.cookies:
+            self.update_cookies(fingerprint.cookies)
+
+        logger.info(
+            "已注入浏览器指纹: ua=%s cookies=%s",
+            fingerprint.user_agent,
+            list(fingerprint.cookies.keys()),
         )
