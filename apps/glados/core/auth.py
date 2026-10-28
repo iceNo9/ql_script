@@ -32,7 +32,7 @@ from apps.glados.core.api import (
 from apps.glados.core.config import GladosAccountConfig
 from apps.glados.core.email import EmailTool
 from apps.glados.core.models import Account
-from apps.glados.core.parser import GladosParser
+from apps.glados.core.parser import GladosParser, ResultStatus
 from apps.glados.core.repositories import AccountRepository
 from utils.email import EmailClient
 from utils.log import get_logger
@@ -245,10 +245,11 @@ class AuthService:
         auth_response = self.api.authorization(account.username)
         auth_result = self.parser.parse_authorization(auth_response)
 
-        if not auth_result.success:
+        if auth_result.status != ResultStatus.OK:
             logger.error(
-                "请求 GLaDOS 登录验证码失败: username=%s, error=%s",
+                "请求 GLaDOS 登录验证码失败: username=%s, status=%s, error=%s",
                 account.username,
+                auth_result.status,
                 auth_result.error,
             )
             return None
@@ -288,10 +289,11 @@ class AuthService:
         )
         login_result = self.parser.parse_login(login_response)
 
-        if not login_result.success:
+        if login_result.status != ResultStatus.OK:
             logger.error(
-                "GLaDOS 邮箱登录失败: username=%s, error=%s",
+                "GLaDOS 邮箱登录失败: username=%s, status=%s, error=%s",
                 account.username,
+                login_result.status,
                 login_result.error,
             )
             return None

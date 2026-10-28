@@ -18,8 +18,9 @@ GLaDOS 应用门面。
     - HTTP / 解析 / 持久化
 
 认证降级策略：
-    任何 GladosAPIError 都视为"可能需要重新认证"，
-    触发认证来源降级（最多 3 次）。
+    1. action 抛 GladosAPIError（传输层失败，或 service 层识别出的认证失败）
+    2. action 返回 GladosBaseResult 且 is_auth_failure 为 True
+    任一满足即触发认证来源降级（最多 3 次）。
 """
 
 from collections.abc import Callable
@@ -32,11 +33,13 @@ from apps.glados.core.checkin import CheckinOutcome, CheckinService
 from apps.glados.core.config import GladosAccountConfig, GladosConfig
 from apps.glados.core.models import Account
 from apps.glados.core.parser import (
+    GladosBaseResult,
     GladosCheckinResult,
     GladosExchangeResult,
     GladosParser,
     GladosPointsResult,
     GladosStatusResult,
+    ResultStatus,
 )
 from apps.glados.core.report import ReportService
 from apps.glados.core.repositories import (
@@ -170,18 +173,13 @@ class GladosApp:
         action: Callable[[], T],
     ) -> T:
         """
-        认证并执行 action，遇到 GladosAPIError 时降级重试。
+        认证并执行 action，遇到认证类失败时降级重试。
 
-        降级逻辑：
-            1. authenticate 返回 (cookies, source)
-            2. set_cookies，执行 action
-            3. 若抛 GladosAPIError：
-               把 source 加入 skip_sources，重新认证
-            4. 最多尝试 _MAX_AUTH_ATTEMPTS 次
+        降级触发条件（二选一）：
+            1. action 抛 GladosAPIError（传输层失败，或 service 层识别出的认证失败）
+            2. action 返回 GladosBaseResult 且 is_auth_failure 为 True
 
-        注意：
-            本方法不区分 HTTP 错误类型。
-            任何 GladosAPIError 都视为"可能需要重新认证"。
+        最多尝试 _MAX_AUTH_ATTEMPTS 次。
         """
         skip_sources: set[AuthSource] = set()
         last_error: GladosAPIError | None = None
@@ -194,8 +192,7 @@ class GladosApp:
             self.api.set_cookies(cookies)
 
             try:
-                return action()
-
+                result = action()
             except GladosAPIError as exc:
                 logger.warning(
                     "账号 %s 认证来源 %s 执行失败，降级重试: %s",
@@ -205,6 +202,25 @@ class GladosApp:
                 )
                 skip_sources.add(source)
                 last_error = exc
+                continue
+
+            # 检查返回值是否为认证类失败（双保险）
+            if isinstance(result, GladosBaseResult) and result.is_auth_failure:
+                logger.warning(
+                    "账号 %s 认证来源 %s 返回认证失败(status=%s)，降级重试: %s",
+                    account.username,
+                    source,
+                    result.status,
+                    result.error,
+                )
+                skip_sources.add(source)
+                last_error = GladosAPIError(
+                    status_code=0,
+                    message=f"auth failure via result: {result.error}",
+                )
+                continue
+
+            return result
 
         raise last_error or GladosAPIError(
             status_code=0,
@@ -330,7 +346,7 @@ class GladosApp:
             db_account: Account,
         ) -> GladosPointsResult | None:
             result = self.user_service.get_points(account)
-            if result is not None:
+            if result is not None and result.status == ResultStatus.OK:
                 self.account_service.update_points(db_account, result.points)
             return result
 
@@ -352,7 +368,7 @@ class GladosApp:
             db_account: Account,
         ) -> GladosStatusResult | None:
             result = self.user_service.get_status(account, db_account)
-            if result is not None:
+            if result is not None and result.status == ResultStatus.OK:
                 self.account_service.update_left_days(db_account, result.left_days)
             return result
 
@@ -391,7 +407,7 @@ class GladosApp:
             db_account: Account,
         ) -> GladosExchangeResult | None:
             result = self.user_service.exchange_points(account, plan_type)
-            if result is not None:
+            if result is not None and result.status == ResultStatus.OK:
                 # 赋值剩余积分
                 self.account_service.update_points(db_account, result.points)
                 # 累加剩余天数
@@ -438,10 +454,11 @@ class GladosApp:
 
         # 3. 获取账号状态（检查剩余天数）
         status_result = self.status(account_config.username)
-        if status_result is None:
+        if status_result is None or status_result.status != ResultStatus.OK:
             logger.error(
-                "获取账号状态失败: username=%s",
+                "获取账号状态失败: username=%s, status=%s",
                 account_config.username,
+                getattr(status_result, "status", None),
             )
             return None
 
@@ -474,10 +491,11 @@ class GladosApp:
 
         # 5. 获取积分（检查积分是否足够）
         points_result = self.points(account_config.username)
-        if points_result is None:
+        if points_result is None or points_result.status != ResultStatus.OK:
             logger.error(
-                "获取账号积分失败: username=%s",
+                "获取账号积分失败: username=%s, status=%s",
                 account_config.username,
+                getattr(points_result, "status", None),
             )
             return None
 

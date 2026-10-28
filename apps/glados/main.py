@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from apps.glados.core.app import GladosApp
 from apps.glados.core.config import load_glados_config
+from apps.glados.core.parser import ResultStatus
 from apps.glados.core.repositories import init_database
 from utils.config import get_config_path, load_global_config
 from utils.log import get_logger
@@ -188,7 +189,9 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         status_results = client.status_all()
         total_count = len(status_results)
         success_count = sum(
-            1 for r in status_results.values() if r is not None and r.success
+            1
+            for r in status_results.values()
+            if r is not None and r.status == ResultStatus.OK
         )
         logger.info(f"状态更新完成: 成功 {success_count}/{total_count}")
 
@@ -199,7 +202,7 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         for username, result in status_results.items():
             if result is None:
                 logger.warning(f"获取状态失败 [{username}]: 返回结果为 None")
-            elif result.success:
+            elif result.status == ResultStatus.OK:
                 logger.info(
                     f"账号 {username}: VIP={result.vip}, "
                     f"剩余天数={result.left_days:.1f}天, "
@@ -207,13 +210,18 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
                     f"总流量={result.total_traffic_byte / (1024**3):.2f}GB"
                 )
             else:
-                logger.warning(f"获取状态失败 [{username}]: {result.error}")
+                logger.warning(
+                    f"获取状态失败 [{username}]: status={result.status}, "
+                    f"error={result.error}"
+                )
 
         # 获取所有账号积分
         points_results = client.points_all()
         total_count = len(points_results)
         success_count = sum(
-            1 for r in points_results.values() if r is not None and r.success
+            1
+            for r in points_results.values()
+            if r is not None and r.status == ResultStatus.OK
         )
         logger.info(f"积分更新完成: 成功 {success_count}/{total_count}")
 
@@ -223,10 +231,13 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         for username, result in points_results.items():
             if result is None:
                 logger.warning(f"获取积分失败 [{username}]: 返回结果为 None")
-            elif result.success:
+            elif result.status == ResultStatus.OK:
                 logger.info(f"账号 {username}: 积分={result.points:.2f}")
             else:
-                logger.warning(f"获取积分失败 [{username}]: {result.error}")
+                logger.warning(
+                    f"获取积分失败 [{username}]: status={result.status}, "
+                    f"error={result.error}"
+                )
 
     except Exception:
         logger.exception("更新状态失败: ")
@@ -240,7 +251,9 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
 
         # 获取所有成功的结果（排除 None）
         success_results = [
-            r for r in checkin_results.values() if r is not None and r.success
+            r
+            for r in checkin_results.values()
+            if r is not None and r.status == ResultStatus.OK
         ]
         success_count = len(success_results)
         total_count = len(checkin_results)
@@ -254,8 +267,11 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         for username, result in checkin_results.items():
             if result is None:
                 logger.warning(f"签到失败 [{username}]: 返回结果为 None")
-            elif not result.success:
-                logger.warning(f"签到失败 [{username}]: {result.message}")
+            elif result.status != ResultStatus.OK:
+                logger.warning(
+                    f"签到失败 [{username}]: status={result.status}, "
+                    f"message={result.message}"
+                )
 
     except Exception:
         logger.exception("签到失败，终止执行")
@@ -268,7 +284,9 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         exchange_results = client.exchange_all_by_rules()
         total_count = len(exchange_results)
         success_count = sum(
-            1 for r in exchange_results.values() if r is not None and r.success
+            1
+            for r in exchange_results.values()
+            if r is not None and r.status == ResultStatus.OK
         )
 
         logger.info(f"积分续费完成: 成功 {success_count}/{total_count}")
@@ -280,13 +298,16 @@ def _execute_operations(client: GladosApp) -> ExecutionSummary:
         for username, result in exchange_results.items():
             if result is None:
                 logger.debug(f"账号 {username}: 无需续费")
-            elif result.success:
+            elif result.status == ResultStatus.OK:
                 logger.info(
                     f"账号 {username}: 续费成功，增加 {result.days_added} 天，"
                     f"剩余 {result.points} 积分"
                 )
             else:
-                logger.warning(f"账号 {username}: 续费失败 - {result.message}")
+                logger.warning(
+                    f"账号 {username}: 续费失败 - status={result.status}, "
+                    f"message={result.message}"
+                )
 
     except Exception:
         logger.exception("积分续费失败，继续执行后续任务")

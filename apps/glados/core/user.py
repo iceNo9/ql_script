@@ -21,6 +21,7 @@ GLaDOS 用户服务。
 异常传播约定：
     GladosAPIError 一律上抛，由门面处理认证降级。
     本服务不吞 GladosAPIError。
+    认证类失败（AUTH_EXPIRED / AUTH_REQUIRED）转为 GladosAPIError 上抛。
     其他异常吞掉并返回 None。
 """
 
@@ -83,6 +84,7 @@ class UserService:
 
         异常传播：
             GladosAPIError 上抛（门面处理降级）。
+            认证类失败（AUTH_EXPIRED / AUTH_REQUIRED）转为 GladosAPIError 上抛。
             其他异常吞掉并返回 None。
         """
         logger.info(
@@ -94,10 +96,17 @@ class UserService:
             response = self.api.get_points()
             result = self.parser.parse_points(response)
 
-            if not result.success:
+            if result.is_auth_failure:
+                raise GladosAPIError(
+                    status_code=0,
+                    message=result.error or "认证失效",
+                )
+
+            if result.is_failure:
                 logger.warning(
-                    "获取 GLaDOS 积分失败: username=%s, error=%s",
+                    "获取 GLaDOS 积分失败: username=%s, status=%s, error=%s",
                     account.username,
+                    result.status,
                     result.error,
                 )
                 return None
@@ -158,10 +167,17 @@ class UserService:
             response = self.api.get_status()
             result = self.parser.parse_status(response)
 
-            if not result.success:
+            if result.is_auth_failure:
+                raise GladosAPIError(
+                    status_code=0,
+                    message=result.error or "认证失效",
+                )
+
+            if result.is_failure:
                 logger.warning(
-                    "获取 GLaDOS 账号状态失败: username=%s, error=%s",
+                    "获取 GLaDOS 账号状态失败: username=%s, status=%s, error=%s",
                     account.username,
+                    result.status,
                     result.error,
                 )
                 return None
@@ -230,11 +246,19 @@ class UserService:
             response = self.api.exchange_points(plan_type)
             result = self.parser.parse_exchange(response)
 
-            if not result.success:
+            if result.is_auth_failure:
+                raise GladosAPIError(
+                    status_code=0,
+                    message=result.error or "认证失效",
+                )
+
+            if result.is_failure:
                 logger.warning(
-                    "GLaDOS 积分兑换失败: username=%s, plan_type=%s, error=%s",
+                    "GLaDOS 积分兑换失败: username=%s, plan_type=%s, "
+                    "status=%s, error=%s",
                     account.username,
                     plan_type,
+                    result.status,
                     result.error,
                 )
                 return None

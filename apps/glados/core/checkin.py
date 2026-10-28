@@ -21,6 +21,7 @@ GLaDOS 签到服务。
 异常传播约定：
     GladosAPIError 一律上抛，由门面处理认证降级。
     本服务不吞 GladosAPIError。
+    认证类失败（AUTH_EXPIRED / AUTH_REQUIRED）也转为 GladosAPIError 上抛。
     其他异常（解析异常、代码 bug 等）吞掉并返回失败结果。
 """
 
@@ -96,6 +97,11 @@ class CheckinOutcome:
         """是否失败。"""
         return self.action == "failed"
 
+    @property
+    def is_auth_failure(self) -> bool:
+        """是否认证失败。"""
+        return self.result.is_auth_failure
+
 
 # ================================================================
 # CheckinService
@@ -149,7 +155,7 @@ class CheckinService:
                 account.username,
             )
             return CheckinOutcome(
-                result=GladosCheckinResult(success=True),
+                result=GladosCheckinResult.ok(),
                 action="skipped",
             )
 
@@ -187,14 +193,22 @@ class CheckinService:
 
         异常传播：
             GladosAPIError 一律上抛（门面处理降级）。
+            认证类失败（AUTH_EXPIRED / AUTH_REQUIRED）转为 GladosAPIError 上抛。
             其他异常吞掉并返回失败结果。
         """
         try:
             response = self.api.checkin()
             result = self.parser.parse_checkin(response)
 
-            # 失败（解析层面或业务 code 异常）
-            if not result.success:
+            # 认证类失败：上抛，由门面降级
+            if result.is_auth_failure:
+                raise GladosAPIError(
+                    status_code=0,
+                    message=result.error or "认证失效",
+                )
+
+            # 其他失败（解析失败 / 未知 / 限流等）：记为失败
+            if result.is_failure:
                 return self._build_failure_outcome(
                     db_account,
                     result.error or "签到失败",
@@ -213,7 +227,7 @@ class CheckinService:
                     result.streak,
                 )
 
-                # CheckinLog.points 写 0（保持原行为：already_checked 不记积分）
+                # CheckinLog.points 写 0（already_checked 不记积分）
                 self.checkin_log_repository.create(
                     account_id=db_account.id,
                     success=True,
@@ -269,7 +283,7 @@ class CheckinService:
             return self._build_failure_outcome(
                 db_account,
                 str(exc) or "签到异常",
-                GladosCheckinResult.failure("签到异常"),
+                GladosCheckinResult.parse_error("签到异常"),
             )
 
     # ================================================================

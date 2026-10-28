@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -169,6 +169,11 @@ class GladosAPI:
         """构建完整 URL"""
         return urljoin(self.base_url, endpoint)
 
+    def _site(self) -> str:
+        """从 base_url 推导 site 字段（与 Origin 保持一致）。"""
+        # https://glados.cloud → glados.cloud
+        return urlparse(self.base_url).netloc
+
     def _ensure_json_mode(self):
         """确保是 JSON 请求模式"""
         # 如果当前不是 JSON 模式，切换
@@ -202,7 +207,7 @@ class GladosAPI:
             requests.RequestException: HTTP 请求失败
         """
         url = self._url(GladosEndpoints.AUTH)
-        payload = {"address": email, "site": "glados.network"}
+        payload = {"address": email, "site": self._site()}
 
         # 设置 Referer 为登录页
         self.client.set_referer(self._url(GladosEndpoints.LOGIN_PAGE))
@@ -229,7 +234,7 @@ class GladosAPI:
             "email": email,
             "mailcode": mailcode,
             "method": "email",
-            "site": "glados.network",
+            "site": self._site(),
         }
 
         self.client.set_referer(self._url(GladosEndpoints.LOGIN_PAGE))
